@@ -1,0 +1,2111 @@
+const API_BASE_URL = 'https://action-sports-api.vercel.app/api';
+const API_BASE_HOST = API_BASE_URL;
+const AUTH_STORAGE_KEY = 'actionSportsAuthToken';
+const AUTH_USER_STORAGE_KEY = 'actionSportsAuthUser';
+
+const AUTH_ENDPOINTS = {
+    signIn: `${API_BASE_HOST}/auth/sign-in`,
+    signUp: `${API_BASE_HOST}/auth/sign-up`,
+    forgotPassword: `${API_BASE_HOST}/auth/forgot-password`,
+    verifyResetCode: `${API_BASE_HOST}/auth/verify-reset-code`,
+    resetPassword: `${API_BASE_HOST}/auth/reset-password`
+};
+
+const USER_ENDPOINTS = {
+    me: `${API_BASE_HOST}/users/me`,
+    changePassword: `${API_BASE_HOST}/users/me/change-password`,
+    updateAccount: `${API_BASE_HOST}/users/me/update-account`,
+    deactivateAccount: `${API_BASE_HOST}/users/me/deactivate-account`
+};
+
+const CART_ENDPOINTS = {
+    base: `${API_BASE_HOST}/cart`,
+    add: `${API_BASE_HOST}/cart`,
+    list: `${API_BASE_HOST}/cart`,
+    clear: `${API_BASE_HOST}/cart/clear`,
+    item: (itemId) => `${API_BASE_HOST}/cart/${itemId}`
+};
+
+const FALLBACK_IMAGE = 'assets/images/product1.png';
+
+const productMetadataCache = (() => {
+    if (typeof window !== 'undefined') {
+        if (window.__actionSportsProductMetadata__ instanceof Map) {
+            return window.__actionSportsProductMetadata__;
+        }
+        const map = new Map();
+        window.__actionSportsProductMetadata__ = map;
+        return map;
+    }
+    return new Map();
+})();
+
+const GUEST_CART_STORAGE_KEY = 'actionSportsGuestCart';
+let guestCartCache = [];
+
+function readGuestCartItems() {
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            const raw = window.localStorage.getItem(GUEST_CART_STORAGE_KEY);
+            if (!raw) return Array.isArray(guestCartCache) ? [...guestCartCache] : [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        }
+    } catch (error) {
+        console.warn('⚠️ Failed to read guest cart from storage:', error);
+    }
+    return Array.isArray(guestCartCache) ? [...guestCartCache] : [];
+}
+
+function writeGuestCartItems(items) {
+    const normalized = Array.isArray(items) ? items : [];
+    guestCartCache = normalized.map(item => ({ ...item }));
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem(GUEST_CART_STORAGE_KEY, JSON.stringify(normalized));
+        }
+    } catch (error) {
+        console.warn('⚠️ Failed to persist guest cart to storage:', error);
+    }
+}
+
+function resolveGuestCartItem(productId, quantity = 1, payload = {}) {
+    const metadata = productMetadataCache.get(productId) || {};
+    const quantityNumber = Number(quantity) || 1;
+    const priceCandidate = payload.price ?? metadata.price ?? 0;
+    const price = Number(sanitizePrice(priceCandidate)) || 0;
+    let image = payload.image || metadata.image;
+    if (!image && payload.rawProduct && typeof resolveProductImage === 'function') {
+        image = resolveProductImage(payload.rawProduct);
+    }
+    if (!image) {
+        image = FALLBACK_IMAGE;
+    }
+    const name = payload.name || metadata.name || 'منتج';
+    const id = payload.id || productId || `guest-${Date.now()}`;
+
+    return {
+        id,
+        productId,
+        quantity: quantityNumber,
+        price,
+        name,
+        image
+    };
+}
+
+function getGuestCartSnapshot() {
+    const items = readGuestCartItems().map(item => ({
+        id: item.id || item.productId || `guest-${Date.now()}`,
+        productId: item.productId,
+        quantity: Number(item.quantity) || 1,
+        price: Number(sanitizePrice(item.price)) || 0,
+        name: item.name || 'منتج',
+        image: item.image || FALLBACK_IMAGE
+    }));
+
+    return {
+        items,
+        totals: computeCartTotals(items)
+    };
+}
+
+function syncGuestCartState(options = {}) {
+    const snapshot = getGuestCartSnapshot();
+    applyCartSnapshot(snapshot, options);
+}
+
+function addProductToGuestCart(productId, quantity = 1, payload = {}) {
+    const items = readGuestCartItems();
+    const targetId = payload.id || productId;
+    const existingIndex = items.findIndex(item => item.productId === productId || item.id === targetId);
+
+    if (existingIndex >= 0) {
+        const current = items[existingIndex];
+        const newQuantity = (Number(current.quantity) || 0) + (Number(quantity) || 1);
+        items[existingIndex] = {
+            ...current,
+            quantity: newQuantity
+        };
+    } else {
+        const newItem = resolveGuestCartItem(productId, quantity, payload);
+        items.push(newItem);
+    }
+
+    productMetadataCache.set(productId, {
+        name: payload.name || productMetadataCache.get(productId)?.name || 'منتج',
+        price: Number(sanitizePrice(payload.price ?? productMetadataCache.get(productId)?.price ?? 0)) || 0,
+        image: payload.image || productMetadataCache.get(productId)?.image || FALLBACK_IMAGE
+    });
+
+    writeGuestCartItems(items);
+    syncGuestCartState();
+    return getGuestCartSnapshot();
+}
+
+function updateGuestCartItemQuantity(itemId, quantity) {
+    const items = readGuestCartItems();
+    const index = items.findIndex(item => item.id === itemId);
+    if (index === -1) return getGuestCartSnapshot();
+
+    const numericQuantity = Number(quantity) || 0;
+    if (numericQuantity <= 0) {
+        items.splice(index, 1);
+    } else {
+        items[index] = {
+            ...items[index],
+            quantity: numericQuantity
+        };
+    }
+
+    writeGuestCartItems(items);
+    syncGuestCartState();
+    return getGuestCartSnapshot();
+}
+
+function removeGuestCartItem(itemId) {
+    const items = readGuestCartItems();
+    const nextItems = items.filter(item => item.id !== itemId);
+    writeGuestCartItems(nextItems);
+    syncGuestCartState();
+    return getGuestCartSnapshot();
+}
+
+function clearGuestCart() {
+    writeGuestCartItems([]);
+    syncGuestCartState();
+}
+
+const passwordRecoveryState = {
+    email: '',
+    code: '',
+    token: '',
+    timerId: null
+};
+
+const cartState = {
+    items: [],
+    totals: {
+        subtotal: 0,
+        shipping: 0,
+        total: 0
+    },
+    isLoading: false,
+    isLoaded: false,
+    error: null
+};
+
+function sanitizePrice(rawPrice) {
+    if (rawPrice === undefined || rawPrice === null || rawPrice === '') {
+        return NaN;
+    }
+
+    if (typeof rawPrice === 'number') {
+        return rawPrice;
+    }
+
+    if (typeof rawPrice === 'string') {
+        const digits = rawPrice.replace(/[^0-9.,]/g, '').replace(/,/g, '.');
+        const parsed = Number(digits);
+        return Number.isFinite(parsed) ? parsed : NaN;
+    }
+
+    return NaN;
+}
+
+function formatPrice(value) {
+    if (value === undefined || value === null || value === '') return '-';
+    const number = Number(value);
+    if (Number.isNaN(number)) return value;
+    return number.toLocaleString('ar-EG');
+}
+
+function getCartItemCount(items = cartState.items) {
+    return Array.isArray(items)
+        ? items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
+        : 0;
+}
+
+function computeCartTotals(items = [], overrides = {}) {
+    const subtotalFromItems = Array.isArray(items)
+        ? items.reduce((sum, item) => sum + ((Number(item.price) || 0) * (Number(item.quantity) || 0)), 0)
+        : 0;
+
+    const subtotal = overrides.subtotal != null
+        ? Number(sanitizePrice(overrides.subtotal)) || 0
+        : subtotalFromItems;
+
+    const shipping = overrides.shipping != null
+        ? Number(sanitizePrice(overrides.shipping)) || 0
+        : 0;
+
+    return {
+        subtotal,
+        shipping,
+        total: subtotal + shipping
+    };
+}
+
+function updateCartIndicators() {
+    const totalItems = getCartItemCount();
+    const cartCountElement = document.getElementById('cart-count');
+    if (cartCountElement) {
+        cartCountElement.textContent = totalItems.toString();
+    }
+
+    const cartTotalElement = document.getElementById('cart-total-price');
+    if (cartTotalElement) {
+        const formatted = formatPrice(cartState.totals.total || 0);
+        const currencyIcon = '<img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;">';
+        cartTotalElement.innerHTML = `${formatted} ${currencyIcon}`;
+    }
+}
+
+function notifyCartUpdated() {
+    document.dispatchEvent(new CustomEvent('cart:updated', {
+        detail: {
+            cart: { ...cartState }
+        }
+    }));
+}
+
+function setCartLoading(loading) {
+    cartState.isLoading = loading;
+    document.dispatchEvent(new CustomEvent('cart:loading', {
+        detail: { loading }
+    }));
+}
+
+function resetCartState({ suppressEvent = false } = {}) {
+    cartState.items = [];
+    cartState.totals = computeCartTotals([]);
+    cartState.isLoaded = false;
+    cartState.error = null;
+    updateCartIndicators();
+    if (!suppressEvent) {
+        notifyCartUpdated();
+    }
+}
+
+function applyCartSnapshot(snapshot = {}, { suppressEvent = false } = {}) {
+    const items = Array.isArray(snapshot.items) ? snapshot.items : [];
+    const totals = computeCartTotals(items, snapshot.totals || {});
+
+    cartState.items = items;
+    cartState.totals = totals;
+    cartState.isLoaded = true;
+    cartState.error = null;
+
+    updateCartIndicators();
+    if (!suppressEvent) {
+        notifyCartUpdated();
+    }
+}
+
+function normalizeCartSnapshot(payload) {
+    if (!payload) {
+        return { items: [], totals: computeCartTotals([]) };
+    }
+
+    const dataRoot = payload.data || payload.cart || payload;
+    const cartData = dataRoot?.cart || dataRoot;
+    let itemsSource = cartData?.items || cartData?.cartItems || cartData?.products || dataRoot?.items || [];
+
+    if (!Array.isArray(itemsSource) && Array.isArray(cartData)) {
+        itemsSource = cartData;
+    }
+
+    if (!Array.isArray(itemsSource)) {
+        itemsSource = [];
+    }
+
+    const previousItems = Array.isArray(cartState.items) ? cartState.items : [];
+
+    const items = itemsSource.map((item, index) => {
+        const product = item?.product || item?.productId || item?.item || {};
+        const productObject = typeof product === 'object' ? product : {};
+        const productId = productObject._id || productObject.id || item?.productId || item?.id || `product-${index}`;
+        const cartItemId = item?._id || item?.id || item?.cartItemId || productId || `cart-item-${index}`;
+        const quantity = Number(item?.quantity ?? item?.qty ?? item?.count ?? 1) || 1;
+        const priceSource = item?.price?.current ?? item?.price?.value ?? item?.price ?? item?.unitPrice ?? productObject?.price ?? 0;
+        let price = Number(sanitizePrice(priceSource));
+        let name = item?.name || productObject?.name || item?.productName || '';
+        const imageSource = productObject?.image || productObject?.mainImage || productObject?.thumbnail || item?.image;
+        let resolvedImage = resolveProductImage({ ...productObject, image: imageSource });
+
+        const previous = previousItems.find(prev => prev.id === cartItemId || prev.productId === productId);
+        const cached = productMetadataCache.get(productId || cartItemId);
+        if (!name && previous?.name) {
+            name = previous.name;
+        }
+        if (!name && cached?.name) {
+            name = cached.name;
+        }
+        if ((!Number.isFinite(price) || price <= 0) && Number.isFinite(previous?.price)) {
+            price = previous.price;
+        }
+        if ((!Number.isFinite(price) || price <= 0) && Number.isFinite(cached?.price)) {
+            price = cached.price;
+        }
+        if ((!resolvedImage || resolvedImage === FALLBACK_IMAGE) && previous?.image) {
+            resolvedImage = previous.image;
+        }
+        if ((!resolvedImage || resolvedImage === FALLBACK_IMAGE) && cached?.image) {
+            resolvedImage = cached.image;
+        }
+
+        if (!name) {
+            name = 'منتج';
+        }
+        if (!Number.isFinite(price) || price < 0) {
+            price = 0;
+        }
+
+        const normalizedItem = {
+            id: cartItemId,
+            productId,
+            quantity,
+            price,
+            name,
+            image: resolvedImage,
+            raw: item
+        };
+
+        if (productId) {
+            const existing = productMetadataCache.get(productId) || {};
+            productMetadataCache.set(productId, {
+                name: name || existing.name,
+                price: Number.isFinite(price) && price > 0 ? price : existing.price,
+                image: resolvedImage && resolvedImage !== FALLBACK_IMAGE ? resolvedImage : existing.image
+            });
+        }
+
+        return normalizedItem;
+    });
+
+    const totals = computeCartTotals(items, {
+        subtotal: cartData?.subtotal ?? cartData?.totalPrice ?? cartData?.total ?? payload?.subtotal ?? payload?.total,
+        shipping: cartData?.shipping ?? cartData?.shippingCost ?? payload?.shipping
+    });
+
+    return { items, totals };
+}
+
+async function refreshCartState(force = false) {
+    if (cartState.isLoading) {
+        return cartState;
+    }
+
+    if (cartState.isLoaded && !force) {
+        return cartState;
+    }
+
+    const token = getAuthToken();
+    if (!token) {
+        syncGuestCartState();
+        return cartState;
+    }
+
+    setCartLoading(true);
+
+    try {
+        const response = await getJson(CART_ENDPOINTS.list, token);
+        console.log('Cart API response:', response);
+        const snapshot = normalizeCartSnapshot(response);
+        applyCartSnapshot(snapshot);
+    } catch (error) {
+        console.error('❌ Failed to fetch cart:', error);
+        cartState.error = error;
+        if (error.status === 401) {
+            resetCartState({ suppressEvent: false });
+        } else {
+            notifyCartUpdated();
+        }
+        throw error;
+    } finally {
+        setCartLoading(false);
+    }
+
+    return cartState;
+}
+
+async function addProductToCartById(productId, quantity = 1, extraPayload = {}) {
+    if (!productId) {
+        throw new Error('productId is required to add item to cart');
+    }
+
+    const token = getAuthToken();
+    if (!token) {
+        addProductToGuestCart(productId, quantity, extraPayload);
+        return getGuestCartSnapshot();
+    }
+
+    try {
+        const payload = {
+            productId,
+            quantity,
+            ...extraPayload
+        };
+
+        const response = await postJson(CART_ENDPOINTS.add, payload, token);
+        const snapshot = normalizeCartSnapshot(response);
+
+        if (snapshot.items.length) {
+            applyCartSnapshot(snapshot);
+        } else {
+            await refreshCartState(true);
+        }
+    } catch (error) {
+        console.error('❌ Failed to add product to cart:', error);
+        throw error;
+    }
+}
+
+async function updateCartItemQuantity(itemId, quantity) {
+    if (!itemId) throw new Error('itemId is required');
+    if (quantity <= 0) {
+        return removeCartItem(itemId);
+    }
+
+    const token = getAuthToken();
+    if (!token) {
+        return updateGuestCartItemQuantity(itemId, quantity);
+    }
+
+    try {
+        const response = await patchJson(CART_ENDPOINTS.item(itemId), { quantity }, token);
+        const snapshot = normalizeCartSnapshot(response);
+
+        if (snapshot.items.length) {
+            applyCartSnapshot(snapshot);
+        } else {
+            await refreshCartState(true);
+        }
+    } catch (error) {
+        console.error('❌ Failed to update cart item quantity:', error);
+        throw error;
+    }
+}
+
+async function removeCartItem(itemId) {
+    if (!itemId) throw new Error('itemId is required');
+
+    const token = getAuthToken();
+    if (!token) {
+        return removeGuestCartItem(itemId);
+    }
+
+    try {
+        const response = await deleteJson(CART_ENDPOINTS.item(itemId), token);
+        const snapshot = normalizeCartSnapshot(response);
+
+        if (snapshot.items.length || snapshot.totals.total) {
+            applyCartSnapshot(snapshot);
+        } else {
+            await refreshCartState(true);
+        }
+    } catch (error) {
+        console.error('❌ Failed to remove cart item:', error);
+        throw error;
+    }
+}
+
+async function clearCartContents() {
+    const token = getAuthToken();
+    if (!token) {
+        clearGuestCart();
+        return;
+    }
+
+    try {
+        const response = await patchJson(CART_ENDPOINTS.clear, {}, token);
+        const snapshot = normalizeCartSnapshot(response);
+
+        if (snapshot.items.length) {
+            applyCartSnapshot(snapshot);
+        } else {
+            resetCartState();
+        }
+    } catch (error) {
+        console.error('❌ Failed to clear cart:', error);
+        throw error;
+    }
+}
+
+// طلب POST عام مع معالجة أخطاء موحدة
+async function postJson(url, data, token) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(data)
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const message = payload?.message || 'حدث خطأ غير متوقع';
+        const errors = payload?.errors || null;
+        const error = new Error(message);
+        error.status = response.status;
+        error.payload = payload;
+        if (errors) error.errors = errors;
+        throw error;
+    }
+    return payload;
+}
+
+// طلب PATCH عام مع خيار تمرير توكن للتخويل
+async function patchJson(url, data, token) {
+    const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(data)
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const message = payload?.message || 'حدث خطأ غير متوقع';
+        const errors = payload?.errors || null;
+        const error = new Error(message);
+        error.status = response.status;
+        error.payload = payload;
+        if (errors) error.errors = errors;
+        throw error;
+    }
+    return payload;
+}
+
+// طلب GET عام مع دعم ترويسة التخويل
+async function getJson(url, token) {
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const message = payload?.message || 'حدث خطأ غير متوقع';
+        const errors = payload?.errors || null;
+        const error = new Error(message);
+        error.status = response.status;
+        error.payload = payload;
+        if (errors) error.errors = errors;
+        throw error;
+    }
+    return payload;
+}
+
+// طلب DELETE عام مع دعم التخويل
+async function deleteJson(url, token) {
+    const response = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const message = payload?.message || 'حدث خطأ غير متوقع';
+        const errors = payload?.errors || null;
+        const error = new Error(message);
+        error.status = response.status;
+        error.payload = payload;
+        if (errors) error.errors = errors;
+        throw error;
+    }
+    return payload;
+}
+
+// تحويل مصفوفة أخطاء التحقق إلى خريطة حسب اسم الحقل
+function mapValidationErrors(errors = []) {
+    return errors.reduce((acc, { path, msg }) => {
+        if (!path) return acc;
+        acc[path] = msg;
+        return acc;
+    }, {});
+}
+
+// تفريغ رسائل الأخطاء النصية داخل نموذج محدد
+function clearFormErrors(form) {
+    if (!form) return;
+    form.querySelectorAll('.input-error').forEach(span => {
+        span.textContent = '';
+    });
+}
+
+// عرض رسائل الأخطاء لكل حقل بناءً على خريطة أخطاء
+function setFieldErrors(form, errorMap = {}) {
+    if (!form) return;
+    Object.entries(errorMap).forEach(([field, message]) => {
+        const target = form.querySelector(`[data-error-for="${field}"]`);
+        if (target) {
+            target.textContent = message;
+        }
+    });
+}
+
+// تحديث محتوى صندوق الرسائل وتعيين حالته (نجاح/خطأ)
+function setMessage(element, message, status) {
+    if (!element) return;
+    element.textContent = message || '';
+    element.dataset.status = status || '';
+}
+
+// تبديل حالة زر بين الوضع العادي ووضع الانتظار مع نص مخصص
+function toggleLoading(button, loading, loadingText) {
+    if (!button) return;
+    if (!button.dataset.originalText) {
+        button.dataset.originalText = button.textContent;
+    }
+    button.disabled = loading;
+    button.textContent = loading ? (loadingText || button.dataset.loadingText || 'جاري المعالجة...') : button.dataset.originalText;
+}
+
+// إظهار أي نافذة منبثقة مع إعادة تفعيل التركيز
+function showInlinePopup(popup) {
+    if (!popup) return;
+    popup.hidden = false;
+    popup.style.display = 'flex';
+    popup.setAttribute('aria-hidden', 'false');
+    popup.removeAttribute('inert');
+    const focusable = popup.querySelector('input, button, [tabindex]:not([tabindex="-1"])');
+    if (focusable) {
+        focusable.focus();
+    }
+}
+
+// إخفاء أي نافذة منبثقة وتعطيل عناصرها
+function hideInlinePopup(popup) {
+    if (!popup) return;
+    popup.hidden = true;
+    popup.style.display = 'none';
+    popup.setAttribute('aria-hidden', 'true');
+    popup.setAttribute('inert', '');
+}
+
+// إيقاف المؤقت المستخدم للانتقال بين نوافذ الاستعادة
+function clearPasswordRecoveryTimer() {
+    if (passwordRecoveryState.timerId) {
+        clearTimeout(passwordRecoveryState.timerId);
+        passwordRecoveryState.timerId = null;
+    }
+}
+
+// تهيئة تدفق "نسيت كلمة المرور" بكافة نوافذه وطلباته
+function initPasswordRecovery(loginForm) {
+    const forgotLinks = Array.from(document.querySelectorAll('.password-reset-link'));
+    const forgotPopup = document.getElementById('forgotPasswordPopup');
+    const forgotForm = document.getElementById('forgotPasswordForm');
+    const forgotEmailInput = document.getElementById('forgotPasswordEmail');
+    const forgotSubmit = document.getElementById('forgotPasswordSubmit');
+    const forgotMessage = document.getElementById('forgotPasswordMessage');
+    const otpPopup = document.getElementById('otpPopup');
+    const otpForm = document.getElementById('otpForm');
+    const otpCodeInput = document.getElementById('otpCode');
+    const otpSubmit = document.getElementById('otpSubmit');
+    const otpMessage = document.getElementById('otpFormMessage');
+    const resetPopup = document.getElementById('resetPasswordPopup');
+    const resetForm = document.getElementById('resetPasswordForm');
+    const newPasswordInput = document.getElementById('newPassword');
+    const confirmPasswordInput = document.getElementById('confirmPassword');
+    const resetSubmit = document.getElementById('resetPasswordSubmit');
+    const resetMessage = document.getElementById('resetPasswordMessage');
+    const loginPopup = document.getElementById('loginPopup');
+    const loginMessage = document.getElementById('loginFormMessage');
+
+    if (!forgotLinks.length || !forgotPopup || !forgotForm || !forgotEmailInput) {
+        return;
+    }
+
+    const hideRecoveryPopups = () => {
+        hideInlinePopup(forgotPopup);
+        hideInlinePopup(otpPopup);
+        hideInlinePopup(resetPopup);
+        clearPasswordRecoveryTimer();
+    };
+
+    const showForgotPopup = () => {
+        hideRecoveryPopups();
+        if (loginPopup) {
+            hideInlinePopup(loginPopup);
+        }
+        showInlinePopup(forgotPopup);
+    };
+
+    const showOtpPopup = () => {
+        hideRecoveryPopups();
+        if (loginPopup) {
+            hideInlinePopup(loginPopup);
+        }
+        showInlinePopup(otpPopup);
+    };
+
+    const showResetPopup = () => {
+        hideRecoveryPopups();
+        if (loginPopup) {
+            hideInlinePopup(loginPopup);
+        }
+        showInlinePopup(resetPopup);
+    };
+
+    forgotLinks.forEach(link => {
+        if (link.dataset.recoveryBound === 'true') return;
+        link.addEventListener('click', (event) => {
+            event.preventDefault();
+            const loginEmail = loginForm?.querySelector('#loginEmail')?.value?.trim();
+            forgotForm.reset();
+            if (loginEmail) {
+                forgotEmailInput.value = loginEmail;
+            }
+            setMessage(forgotMessage, '', '');
+            passwordRecoveryState.email = loginEmail || '';
+            passwordRecoveryState.code = '';
+            showForgotPopup();
+        });
+        link.dataset.recoveryBound = 'true';
+    });
+
+    const closeButtons = Array.from(document.querySelectorAll('[data-close-popup]'));
+    closeButtons.forEach(button => {
+        if (button.dataset.recoveryBound === 'true') return;
+        button.addEventListener('click', () => {
+            const target = button.getAttribute('data-close-popup');
+            if (target === 'forgotPassword') hideInlinePopup(forgotPopup);
+            if (target === 'otp') hideInlinePopup(otpPopup);
+            if (target === 'resetPassword') hideInlinePopup(resetPopup);
+            clearPasswordRecoveryTimer();
+            showPopup('login');
+        });
+        button.dataset.recoveryBound = 'true';
+    });
+
+    forgotForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        clearFormErrors(forgotForm);
+
+        const email = forgotEmailInput.value.trim();
+        if (!email) {
+            setMessage(forgotMessage, 'يرجى إدخال البريد الإلكتروني.', 'error');
+            return;
+        }
+
+        passwordRecoveryState.email = email;
+        passwordRecoveryState.code = '';
+        setMessage(forgotMessage, '', '');
+        toggleLoading(forgotSubmit, true, 'جاري الإرسال...');
+
+        try {
+            const response = await postJson(AUTH_ENDPOINTS.forgotPassword, { email });
+            setMessage(forgotMessage, response?.message || 'سيتم إرسال رمز التحقق إلى بريدك الإلكتروني.', 'success');
+            clearPasswordRecoveryTimer();
+            passwordRecoveryState.timerId = setTimeout(() => {
+                passwordRecoveryState.timerId = null;
+                setMessage(forgotMessage, '', '');
+                showOtpPopup();
+            }, 5000);
+        } catch (error) {
+            console.error('❌ Forgot password error:', error);
+            setMessage(forgotMessage, error.message || 'تعذر إرسال رمز الاستعادة.', 'error');
+        } finally {
+            toggleLoading(forgotSubmit, false);
+        }
+    });
+
+    if (otpForm && otpCodeInput && otpSubmit) {
+        otpForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            clearFormErrors(otpForm);
+
+            const code = otpCodeInput.value.trim();
+            if (!code || code.length < 4) {
+                setMessage(otpMessage, 'يرجى إدخال رمز التحقق.', 'error');
+                return;
+            }
+
+            if (!passwordRecoveryState.email) {
+                setMessage(otpMessage, 'تعذر تحديد البريد المرتبط بالطلب.', 'error');
+                return;
+            }
+
+            setMessage(otpMessage, '', '');
+            toggleLoading(otpSubmit, true, 'جاري التحقق...');
+
+            try {
+                const normalizedCode = code.trim();
+                const response = await postJson(AUTH_ENDPOINTS.verifyResetCode, {
+                    email: passwordRecoveryState.email,
+                    code: normalizedCode,
+                    otp: normalizedCode
+                });
+                setMessage(otpMessage, response?.message || 'تم التحقق من الرمز بنجاح.', 'success');
+                passwordRecoveryState.code = normalizedCode;
+                passwordRecoveryState.token = response?.data?.token || '';
+                setTimeout(() => {
+                    showResetPopup();
+                }, 800);
+            } catch (error) {
+                console.error('❌ Verify reset code error:', error);
+                setMessage(otpMessage, error.message || 'رمز التحقق غير صحيح.', 'error');
+            } finally {
+                toggleLoading(otpSubmit, false);
+            }
+        });
+    }
+
+    if (resetForm && newPasswordInput && confirmPasswordInput && resetSubmit) {
+        resetForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            clearFormErrors(resetForm);
+
+            const password = newPasswordInput.value.trim();
+            const confirmPassword = confirmPasswordInput.value.trim();
+
+            if (!password || !confirmPassword) {
+                setMessage(resetMessage, 'يرجى إدخال كلمة المرور الجديدة وتأكيدها.', 'error');
+                return;
+            }
+
+            if (password.length < 6) {
+                setMessage(resetMessage, 'كلمة المرور يجب ألا تقل عن 6 أحرف.', 'error');
+                return;
+            }
+
+            if (password !== confirmPassword) {
+                setMessage(resetMessage, 'كلمتا المرور غير متطابقتين.', 'error');
+                return;
+            }
+
+            if (!passwordRecoveryState.email || !passwordRecoveryState.code || !passwordRecoveryState.token) {
+                setMessage(resetMessage, 'انتهت صلاحية الطلب. يرجى إعادة المحاولة.', 'error');
+                return;
+            }
+
+            setMessage(resetMessage, '', '');
+            toggleLoading(resetSubmit, true, 'جاري التحديث...');
+
+            try {
+                const payload = {
+                    email: passwordRecoveryState.email,
+                    code: passwordRecoveryState.code,
+                    password,
+                    passwordConfirm: confirmPassword
+                };
+                const response = await patchJson(AUTH_ENDPOINTS.resetPassword, payload, passwordRecoveryState.token);
+                setMessage(resetMessage, response?.message || 'تم تحديث كلمة المرور بنجاح.', 'success');
+                passwordRecoveryState.email = '';
+                passwordRecoveryState.code = '';
+                passwordRecoveryState.token = '';
+                resetForm.reset();
+                setTimeout(() => {
+                    hideRecoveryPopups();
+                    showPopup('login');
+                    setMessage(loginMessage, 'تم تحديث كلمة المرور. يمكنك تسجيل الدخول الآن.', 'success');
+                }, 1200);
+            } catch (error) {
+                console.error('❌ Reset password error:', error);
+                setMessage(resetMessage, error.message || 'تعذر تحديث كلمة المرور.', 'error');
+            } finally {
+                toggleLoading(resetSubmit, false);
+            }
+        });
+    }
+}
+
+// جلب توكن الدخول من localStorage
+function getAuthToken() {
+    return localStorage.getItem(AUTH_STORAGE_KEY);
+}
+
+// حفظ توكن الدخول في localStorage
+function setAuthToken(token) {
+    if (token) {
+        localStorage.setItem(AUTH_STORAGE_KEY, token);
+    }
+}
+
+// إزالة توكن الدخول من localStorage
+function clearAuthToken() {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+// استخراج بيانات المستخدم من استجابة الدخول/التسجيل
+function extractAuthUser(payload) {
+    if (!payload) return null;
+    const userCandidate = payload.user
+        || payload.data?.user
+        || payload.profile
+        || payload.data?.profile
+        || payload.data?.account
+        || null;
+
+    if (!userCandidate || typeof userCandidate !== 'object') {
+        return null;
+    }
+
+    const fallbackName = [userCandidate.firstName, userCandidate.lastName].filter(Boolean).join(' ').trim();
+
+    return {
+        id: userCandidate.id || userCandidate._id || null,
+        name: userCandidate.name || userCandidate.fullName || fallbackName || '',
+        email: userCandidate.email || userCandidate.username || '',
+        raw: userCandidate
+    };
+}
+
+function notifyAuthUserUpdated(user) {
+    document.dispatchEvent(new CustomEvent('auth:user-updated', {
+        detail: { user }
+    }));
+}
+
+// حفظ بيانات المستخدم في localStorage
+function setAuthUser(user) {
+    if (!user) {
+        clearAuthUser();
+        return;
+    }
+    try {
+        localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+        notifyAuthUserUpdated(user);
+    } catch (error) {
+        console.error('❌ Failed to persist auth user:', error);
+    }
+}
+
+// جلب بيانات المستخدم المخزنة
+function getAuthUser() {
+    const raw = localStorage.getItem(AUTH_USER_STORAGE_KEY);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw);
+    } catch (error) {
+        console.warn('⚠️ Failed to parse stored auth user:', error);
+        return null;
+    }
+}
+
+// إزالة بيانات المستخدم المخزنة
+function clearAuthUser() {
+    localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+    notifyAuthUserUpdated(null);
+}
+
+// تحميل بيانات المستخدم من الخادم عند توفر التوكن
+async function ensureAuthUserLoaded(forceRefresh = false) {
+    const token = getAuthToken();
+    if (!token) {
+        clearAuthUser();
+        return null;
+    }
+
+    const cachedUser = getAuthUser();
+    if (!forceRefresh && cachedUser?.name && cachedUser?.email) {
+        return cachedUser;
+    }
+
+    try {
+        const response = await getJson(USER_ENDPOINTS.me, token);
+        const user = extractAuthUser(response);
+        setAuthUser(user);
+        return user;
+    } catch (error) {
+        console.error('❌ Failed to fetch user profile:', error);
+        if (error.status === 401) {
+            clearAuthToken();
+            clearAuthUser();
+        }
+        throw error;
+    }
+}
+
+// التحقق من وجود توكن مسجل لتحديد حالة الدخول
+function isAuthenticated() {
+    return Boolean(getAuthToken());
+}
+
+// تخزين عنوان إعادة التوجيه لحين نجاح تسجيل الدخول
+function setRedirectAfterLogin(url) {
+    if (!url) return;
+    sessionStorage.setItem('redirectAfterLogin', url);
+}
+
+// استهلاك عنوان إعادة التوجيه بعد تسجيل الدخول
+function consumeRedirectAfterLogin() {
+    const url = sessionStorage.getItem('redirectAfterLogin');
+    if (url) {
+        sessionStorage.removeItem('redirectAfterLogin');
+        return url;
+    }
+    return null;
+}
+
+// مسح عنوان إعادة التوجيه المخزن
+function clearRedirectAfterLogin() {
+    sessionStorage.removeItem('redirectAfterLogin');
+}
+
+// تحديث عناصر الواجهة وفق حالة الدخول الحالية
+function updateAuthUI() {
+    const authenticated = isAuthenticated();
+    const authUser = getAuthUser();
+    document.querySelectorAll('.auth-action-login').forEach(element => {
+        element.hidden = authenticated;
+    });
+    document.querySelectorAll('.auth-action-logout').forEach(element => {
+        element.hidden = !authenticated;
+    });
+    document.querySelectorAll('.profile-link').forEach(element => {
+        element.hidden = !authenticated;
+    });
+    document.querySelectorAll('.profile-button').forEach(button => {
+        if (!button) return;
+        if (authenticated && authUser?.name) {
+            button.setAttribute('title', authUser.name);
+            button.setAttribute('aria-label', `حساب ${authUser.name}`);
+        } else {
+            button.setAttribute('title', 'حسابي');
+            button.setAttribute('aria-label', 'حسابي');
+        }
+    });
+}
+
+// تنفيذ إجراءات تسجيل الخروج وتحديث الواجهة
+function handleLogout() {
+    clearAuthToken();
+    clearAuthUser();
+    clearRedirectAfterLogin();
+    if (typeof hidePopup === 'function') {
+        hidePopup('login');
+        hidePopup('signup');
+    }
+    updateAuthUI();
+
+    const redirectTarget = 'index.html';
+    if (window.location.pathname.endsWith('cart.html')) {
+        window.location.href = redirectTarget;
+    } else if (!window.location.pathname.endsWith(redirectTarget) && window.location.pathname !== '/' && window.location.pathname !== `/${redirectTarget}`) {
+        window.location.href = redirectTarget;
+    } else {
+        window.location.reload();
+    }
+}
+
+// ربط أزرار الدخول/الخروج بسلوكها المناسب لمرة واحدة
+function setupAuthActionHandlers() {
+    const actionElements = document.querySelectorAll('[data-auth-action]');
+    actionElements.forEach(element => {
+        if (element.dataset.authBound === 'true') return;
+
+        const action = element.dataset.authAction;
+        if (action === 'login') {
+            element.addEventListener('click', (event) => {
+                event.preventDefault();
+                if (typeof showPopup === 'function') {
+                    showPopup('login');
+                }
+            });
+        } else if (action === 'logout') {
+            element.addEventListener('click', (event) => {
+                event.preventDefault();
+                handleLogout();
+            });
+        }
+
+        element.dataset.authBound = 'true';
+    });
+}
+
+// إعادة التوجيه بعد الدخول أو تحديث الصفحة حسب الحالة
+function handlePostLoginRedirect(fallbackUrl = null) {
+    const redirectUrl = consumeRedirectAfterLogin();
+    if (redirectUrl) {
+        window.location.href = redirectUrl;
+    } else if (fallbackUrl) {
+        window.location.href = fallbackUrl;
+    } else {
+        window.location.reload();
+    }
+}
+
+// منع الوصول للصفحات المحمية مع حفظ المسار المطلوب
+function requireAuth(event, targetUrl) {
+    if (isAuthenticated()) return true;
+    if (event) event.preventDefault();
+    const url = targetUrl || event?.currentTarget?.getAttribute('href') || window.location.href;
+    setRedirectAfterLogin(url);
+    if (typeof showPopup === 'function') {
+        showPopup('login');
+    }
+    return false;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    setupAuthActionHandlers();
+    ensureAuthUserLoaded().finally(() => {
+        updateAuthUI();
+    });
+
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            clearFormErrors(loginForm);
+
+            const submitBtn = loginForm.querySelector('#loginSubmit');
+            const messageBox = loginForm.querySelector('#loginFormMessage');
+            const formData = new FormData(loginForm);
+            const payload = Object.fromEntries(formData.entries());
+
+            setMessage(messageBox, '', '');
+            toggleLoading(submitBtn, true);
+
+            try {
+                const result = await postJson(AUTH_ENDPOINTS.signIn, payload);
+                setMessage(messageBox, result?.message || 'تم تسجيل الدخول بنجاح', 'success');
+                const token = result?.token || result?.data?.token || result?.accessToken || result?.data?.accessToken;
+                if (token) {
+                    setAuthToken(token);
+                    try {
+                        await ensureAuthUserLoaded(true);
+                    } catch (profileError) {
+                        console.warn('⚠️ Failed to fetch profile info after login:', profileError);
+                        setAuthUser(extractAuthUser(result));
+                    }
+                }
+                loginForm.reset();
+                hidePopup('login');
+                updateAuthUI();
+                handlePostLoginRedirect();
+            } catch (error) {
+                console.error('❌ Login error:', error);
+                const validationErrors = mapValidationErrors(error.errors);
+                setFieldErrors(loginForm, validationErrors);
+                const message = error.status === 401
+                    ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة'
+                    : (error.message || 'تعذر تسجيل الدخول');
+                setMessage(messageBox, message, 'error');
+            } finally {
+                toggleLoading(submitBtn, false);
+            }
+        });
+    }
+
+    initPasswordRecovery(loginForm);
+
+    const signupForm = document.getElementById('signupForm');
+    if (signupForm) {
+        signupForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            clearFormErrors(signupForm);
+
+            const submitBtn = signupForm.querySelector('#signupSubmit');
+            const messageBox = signupForm.querySelector('#signupFormMessage');
+            const formData = new FormData(signupForm);
+            const payload = Object.fromEntries(formData.entries());
+
+            setMessage(messageBox, '', '');
+            toggleLoading(submitBtn, true);
+
+            if (payload.password !== payload.passwordConfirm) {
+                const mismatchMessage = 'كلمتا المرور غير متطابقتين';
+                setFieldErrors(signupForm, { password: mismatchMessage, passwordConfirm: mismatchMessage });
+                setMessage(messageBox, mismatchMessage, 'error');
+                toggleLoading(submitBtn, false);
+                return;
+            }
+
+            try {
+                const result = await postJson(AUTH_ENDPOINTS.signUp, payload);
+                setMessage(messageBox, result?.message || 'تم إنشاء الحساب بنجاح', 'success');
+                const token = result?.token || result?.data?.token || result?.accessToken || result?.data?.accessToken;
+                if (token) {
+                    setAuthToken(token);
+                    try {
+                        await ensureAuthUserLoaded(true);
+                    } catch (profileError) {
+                        console.warn('⚠️ Failed to fetch profile info after signup:', profileError);
+                        setAuthUser(extractAuthUser(result));
+                    }
+                }
+                signupForm.reset();
+                hidePopup('signup');
+                updateAuthUI();
+                handlePostLoginRedirect();
+            } catch (error) {
+                console.error('❌ Signup error:', error);
+                const validationErrors = mapValidationErrors(error.errors);
+                setFieldErrors(signupForm, validationErrors);
+                let message = error.message || 'تعذر إنشاء الحساب';
+                if (error.status === 409 || (error.errors && validationErrors.email)) {
+                    message = 'هذا البريد الإلكتروني مسجل بالفعل';
+                }
+                setMessage(messageBox, message, 'error');
+            } finally {
+                toggleLoading(submitBtn, false);
+            }
+        });
+    }
+
+    const cartLinks = Array.from(document.querySelectorAll('a[href*="cart.html"]'));
+    cartLinks.forEach(link => {
+        link.addEventListener('click', (event) => {
+            const href = link.getAttribute('href') || 'cart.html';
+            if (!requireAuth(event, href)) {
+                setMessage(document.getElementById('loginFormMessage'), 'يرجى تسجيل الدخول للوصول إلى السلة.', 'error');
+            }
+        });
+    });
+
+    const profileLinks = Array.from(document.querySelectorAll('a[href*="profile.html"], .profile-link a'));
+    profileLinks.forEach(link => {
+        link.addEventListener('click', (event) => {
+            const href = link.getAttribute('href') || 'profile.html';
+            if (!requireAuth(event, href)) {
+                setMessage(document.getElementById('loginFormMessage'), 'يرجى تسجيل الدخول للوصول إلى حسابك.', 'error');
+            }
+        });
+    });
+
+    if (window.location.pathname.endsWith('cart.html') && !isAuthenticated()) {
+        setRedirectAfterLogin(window.location.pathname + window.location.search);
+        if (typeof showPopup === 'function') {
+            showPopup('login');
+            setMessage(document.getElementById('loginFormMessage'), 'سجل الدخول لمتابعة التسوق.', 'error');
+        }
+    }
+
+    if (window.location.pathname.endsWith('profile.html') && !isAuthenticated()) {
+        setRedirectAfterLogin(window.location.pathname + window.location.search);
+        if (typeof showPopup === 'function') {
+            showPopup('login');
+            setMessage(document.getElementById('loginFormMessage'), 'سجل الدخول للوصول إلى حسابك.', 'error');
+        }
+    }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/**
+ * ===================================================================
+ * Main.js - الوظائف المشتركة في كل صفحات الموقع
+ * ===================================================================
+ * يحتوي على: Preloader, Header, Navigation, Cart Sidebar, Popup Forms
+ */
+
+(function () {
+    "use strict";
+
+    const FALLBACK_IMAGE = 'assets/images/product1.png';
+
+    const HOMEPAGE_FALLBACK_PRODUCTS = [
+        {
+            id: 'home-fallback-1',
+            name: 'جهاز مشي كهربائي',
+            categoryName: 'جهاز كارديو',
+            description: 'جهاز مشي قوي بمحرك 3 حصان وسرعات متعددة.',
+            price: 15000,
+            image: FALLBACK_IMAGE,
+            slug: 'treadmill'
+        },
+        {
+            id: 'home-fallback-2',
+            name: 'دراجة ثابتة',
+            categoryName: 'جهاز كارديو',
+            description: 'دراجة رياضية مع شاشة ديجيتال ومستويات مقاومة متعددة.',
+            price: 8500,
+            image: FALLBACK_IMAGE,
+            slug: 'bike'
+        },
+        {
+            id: 'home-fallback-3',
+            name: 'جهاز قوة متكامل',
+            categoryName: 'أجهزة قوة',
+            description: 'جهاز متعدد التمارين لتمرين كل عضلات الجسم في المنزل.',
+            price: 22000,
+            image: FALLBACK_IMAGE,
+            slug: 'strength-machine'
+        }
+    ];
+
+
+    // Execute callback when DOM is ready (similar to jQuery ready)
+    function ready(fn) {
+        if (document.readyState !== 'loading') {
+            fn();
+        } else {
+            document.addEventListener('DOMContentLoaded', fn);
+        }
+    }
+
+
+
+
+
+    /* ===================================================================
+    1. Preloader
+    =================================================================== */
+    window.addEventListener('load', function () {
+        const preloader = document.getElementById('js-preloader');
+        if (preloader) {
+            preloader.classList.add('loaded');
+        }
+    });
+
+    /* ===================================================================
+    2. Header & Navigation
+    =================================================================== */
+    // Manage sticky header behaviour and mobile nav toggle
+    function handleHeader() {
+        const header = document.querySelector('.header-area');
+        const headerText = document.querySelector('.header-text');
+
+        if (!header) return;
+
+        // Handle scroll only if headerText exists (home page)
+        if (headerText) {
+            const boxHeight = headerText.offsetHeight;
+            const headerHeight = header.offsetHeight;
+
+            window.addEventListener('scroll', function () {
+                const scroll = window.scrollY;
+                if (scroll >= boxHeight - 1.4*headerHeight) {
+                    header.classList.add("background-header");
+                } else {
+                    header.classList.remove("background-header");
+                }
+            });
+        }
+
+        // Mobile menu trigger
+        const menuTrigger = document.querySelector('.menu-trigger');
+        const nav = document.querySelector('.header-area .nav');
+
+        if (menuTrigger && nav) {
+            menuTrigger.addEventListener('click', function () {
+                this.classList.toggle('active');
+                nav.classList.toggle('active');
+            });
+        }
+    }
+
+    // Enable smooth scroll navigation and active link highlighting
+    function handleScrolling() {
+        const scrollLinks = document.querySelectorAll('.scroll-to-section a');
+
+        scrollLinks.forEach(link => {
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+                const targetId = this.getAttribute('href');
+                const targetElement = document.querySelector(targetId);
+                if (targetElement) {
+                    const nav = document.querySelector('.header-area .nav');
+                    const menuTrigger = document.querySelector('.menu-trigger');
+                    if (nav && nav.classList.contains('active')) {
+                        nav.classList.remove('active');
+                        if (menuTrigger) menuTrigger.classList.remove('active');
+                    }
+                    window.scrollTo({ top: targetElement.offsetTop, behavior: 'smooth' });
+                }
+            });
+        });
+
+        const sections = document.querySelectorAll('section, .main-banner');
+        const navLinks = document.querySelectorAll('.nav a');
+
+        if (sections.length > 0) {
+            window.addEventListener('scroll', () => {
+                let current = '';
+                sections.forEach(section => {
+                    const sectionTop = section.offsetTop;
+                    if (window.pageYOffset >= sectionTop - 100) {
+                        current = section.getAttribute('id');
+                    }
+                });
+
+                navLinks.forEach(link => {
+                    link.classList.remove('active');
+                    if (link.getAttribute('href') && link.getAttribute('href').includes(current)) {
+                        link.classList.add('active');
+                    }
+                });
+            });
+        }
+    }
+
+    function togglePopupVisibility(popup, visible) {
+        if (!popup) return;
+        popup.style.display = visible ? 'flex' : 'none';
+        popup.setAttribute('aria-hidden', visible ? 'false' : 'true');
+        if (visible) {
+            popup.removeAttribute('inert');
+            const focusable = popup.querySelector('input, button, [tabindex]:not([tabindex="-1"])');
+            if (focusable) {
+                focusable.focus();
+            }
+        } else {
+            popup.setAttribute('inert', '');
+        }
+    }
+
+    function hideAllPopups() {
+        ['loginPopup', 'signupPopup', 'forgotPasswordPopup', 'otpPopup', 'resetPasswordPopup'].forEach(id => {
+            const popup = document.getElementById(id);
+            togglePopupVisibility(popup, false);
+        });
+    }
+
+    // Show login/signup popup based on requested type
+    window.showPopup = function(type) {
+        const loginPopup = document.getElementById('loginPopup');
+        const signupPopup = document.getElementById('signupPopup');
+        const forgotPopup = document.getElementById('forgotPasswordPopup');
+        const otpPopup = document.getElementById('otpPopup');
+        const resetPopup = document.getElementById('resetPasswordPopup');
+
+        if (!loginPopup || !signupPopup) return;
+
+        if (type === 'login') {
+            togglePopupVisibility(signupPopup, false);
+            togglePopupVisibility(forgotPopup, false);
+            togglePopupVisibility(otpPopup, false);
+            togglePopupVisibility(resetPopup, false);
+            togglePopupVisibility(loginPopup, true);
+        } else if (type === 'signup') {
+            togglePopupVisibility(loginPopup, false);
+            togglePopupVisibility(forgotPopup, false);
+            togglePopupVisibility(otpPopup, false);
+            togglePopupVisibility(resetPopup, false);
+            togglePopupVisibility(signupPopup, true);
+        }
+    };
+
+    // Hide login/signup popup of given type
+    window.hidePopup = function(type) {
+        if (!type) {
+            hideAllPopups();
+            return;
+        }
+
+        const target = document.getElementById(type === 'login' ? 'loginPopup' : 'signupPopup');
+        togglePopupVisibility(target, false);
+    };
+
+    /* ===================================================================
+    3. Shopping Cart Sidebar
+    =================================================================== */
+    // Control cart sidebar open/close and quantity actions
+    function handleCartSidebar() {
+        const cartIcon = document.getElementById('cart-icon');
+        const cartPopup = document.getElementById('cart-popup');
+        const closeCartBtn = document.getElementById('close-cart-btn');
+        const cartOverlay = document.querySelector('.cart-popup-overlay');
+        const cartItemsList = document.getElementById('cart-items-list');
+        const cartCount = document.getElementById('cart-count');
+        const cartTotalPrice = document.getElementById('cart-total-price');
+
+        // Reveal cart sidebar overlay and lock page scroll
+        function openCart(triggerEvent) {
+            if (triggerEvent) {
+                triggerEvent.preventDefault();
+            }
+
+            if (cartPopup) {
+                cartPopup.classList.add('show');
+                document.body.classList.add('cart-popup-open');
+            }
+
+            refreshCartState().catch(error => {
+                console.error('❌ Failed to refresh cart on open:', error);
+            });
+        }
+
+        // Hide cart sidebar overlay and unlock page scroll
+        function closeCart() {
+            if (cartPopup) {
+                cartPopup.classList.remove('show');
+            }
+            document.body.classList.remove('cart-popup-open');
+        }
+
+        // Refresh sidebar cart items and totals from storage
+        function renderCart() {
+            if (!cartItemsList) return;
+            const { items } = cartState;
+
+            cartItemsList.innerHTML = '';
+
+            if (cartState.isLoading && !cartState.isLoaded) {
+                cartItemsList.innerHTML = '<p class="cart-loading-msg">جاري تحميل السلة...</p>';
+                return;
+            }
+
+            if (!items.length) {
+                cartItemsList.innerHTML = '<p class="cart-empty-msg">سلة المشتريات فارغة.</p>';
+                return;
+            }
+
+            items.forEach(item => {
+                const element = document.createElement('div');
+                element.className = 'cart-item';
+                element.dataset.itemId = item.id;
+                element.dataset.productId = item.productId || '';
+                element.innerHTML = `
+                    <img src="${item.image}" alt="${item.name}">
+                    <div class="cart-item-details">
+                        <h4>${item.name}</h4>
+                        <p>${formatPrice(item.price)} </p>
+                    </div>
+                    <div class="cart-item-actions">
+                        <button class="quantity-btn decrease-btn" aria-label="تقليل الكمية" style="width: 28px; height: 28px; border: 1px solid #ddd; background: white; color: #333; cursor: pointer; border-radius: 3px; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; transition: all 0.3s; font-family: 'Cairo', sans-serif; margin-left: 5px;">−</button>
+                        <span class="quantity-display" style="width: 28px; text-align: center; font-weight: 700; font-size: 14px; margin: 0 5px;">${item.quantity}</span>
+                        <button class="quantity-btn increase-btn" aria-label="زيادة الكمية" style="width: 28px; height: 28px; border: 1px solid #ddd; background: white; color: #333; cursor: pointer; border-radius: 3px; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; transition: all 0.3s; font-family: 'Cairo', sans-serif; margin-left: 5px;">+</button>
+                        <button class="remove-item-btn" aria-label="إزالة المنتج" style="width: 28px; height: 28px; border: 1px solid #ff6b6b; background: white; color: #ff6b6b; cursor: pointer; border-radius: 3px; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.3s; margin-right: 10px;">🗑</button>
+                    </div>
+                `;
+                cartItemsList.appendChild(element);
+            });
+
+            updateCartIndicators();
+        }
+
+        // Handle increment/decrement/remove clicks via event delegation
+        function updateCart(e) {
+            const target = e.target;
+            const increaseBtn = target.closest('.increase-btn');
+            const decreaseBtn = target.closest('.decrease-btn');
+            const removeBtn = target.closest('.remove-item-btn');
+
+            if (increaseBtn) {
+                const cartItem = increaseBtn.closest('.cart-item');
+                const itemId = cartItem.dataset.itemId;
+                if (itemId) {
+                    const current = cartState.items.find(item => item.id === itemId);
+                    const newQuantity = (current?.quantity || 0) + 1;
+                    updateCartItemQuantity(itemId, newQuantity).catch(error => {
+                        console.error('❌ Failed to increase quantity:', error);
+                    });
+                }
+            } else if (decreaseBtn) {
+                const cartItem = decreaseBtn.closest('.cart-item');
+                const itemId = cartItem.dataset.itemId;
+                if (itemId) {
+                    const current = cartState.items.find(item => item.id === itemId);
+                    const newQuantity = (current?.quantity || 0) - 1;
+                    updateCartItemQuantity(itemId, newQuantity).catch(error => {
+                        console.error('❌ Failed to decrease quantity:', error);
+                    });
+                }
+            } else if (removeBtn) {
+                const cartItem = removeBtn.closest('.cart-item');
+                const itemId = cartItem.dataset.itemId;
+                if (itemId) {
+                    removeCartItem(itemId).catch(error => {
+                        console.error('❌ Failed to remove item:', error);
+                    });
+                }
+            }
+        }
+
+        // Event Listeners
+        if (cartIcon) {
+            cartIcon.addEventListener('click', (e) => {
+                e.preventDefault();
+                openCart(e);
+            });
+        }
+
+        if (closeCartBtn) {
+            closeCartBtn.addEventListener('click', closeCart);
+        }
+
+        if (cartOverlay) {
+            cartOverlay.addEventListener('click', closeCart);
+        }
+
+        if (cartItemsList) {
+            cartItemsList.addEventListener('click', updateCart);
+        }
+
+        document.addEventListener('cart:updated', renderCart);
+        document.addEventListener('cart:loading', ({ detail }) => {
+            if (!cartItemsList) return;
+            if (detail?.loading) {
+                cartItemsList.innerHTML = '<p class="cart-loading-msg">جاري تحميل السلة...</p>';
+            }
+        });
+
+        window.cartRenderFunction = renderCart;
+        renderCart();
+    }
+
+    function renderHomeCategories(categories = []) {
+        const leftColumn = document.getElementById('categoriesColumnLeft');
+        const rightColumn = document.getElementById('categoriesColumnRight');
+        const emptyState = document.getElementById('categoriesEmptyState');
+
+        if (!leftColumn || !rightColumn) return;
+
+        const total = categories.length;
+
+        if (emptyState) {
+            emptyState.hidden = total !== 0;
+        }
+
+        if (!total) {
+            leftColumn.innerHTML = '';
+            rightColumn.innerHTML = '';
+            return;
+        }
+
+        const midpoint = Math.ceil(total / 2);
+        const leftItems = categories.slice(0, midpoint);
+        const rightItems = categories.slice(midpoint);
+
+        const createItem = (category) => {
+            const categoryId = category._id || category.id || category.slug || '';
+            const categorySlug = category.slug || categoryId;
+            const targetQuery = categorySlug ? `?category=${encodeURIComponent(categorySlug)}` : '';
+            const targetUrl = `products.html${targetQuery}`;
+            const categoryImage = resolveCategoryImage(category);
+
+            return `
+                <li>
+                    <div class="feature-item">
+                        <div class="left-icon">
+                            <img src="${categoryImage}" alt="${category.name}">
+                        </div>
+                        <div class="right-content">
+                            <h4>${category.name}</h4>
+                            <p>${category.description || 'اكتشف مجموعة منتجاتنا في هذه الفئة.'}</p>
+                            <a href="${targetUrl}" class="text-button">عرض المزيد</a>
+                        </div>
+                    </div>
+                </li>
+            `;
+        };
+
+        leftColumn.innerHTML = leftItems.map(createItem).join('');
+        rightColumn.innerHTML = rightItems.map(createItem).join('');
+    }
+
+    function formatPrice(value) {
+        if (value === undefined || value === null || value === '') return '-';
+        const number = Number(value);
+        if (Number.isNaN(number)) return value;
+        return number.toLocaleString('ar-EG');
+    }
+
+    function resolveProductImage(product = {}) {
+        if (!product) {
+            return FALLBACK_IMAGE;
+        }
+
+        const candidates = [];
+
+        const pushFromValue = (value) => {
+            if (!value) return;
+            if (typeof value === 'string') {
+                const normalized = ensureAbsoluteUrl(value);
+                if (normalized) candidates.push(normalized);
+                return;
+            }
+
+            if (Array.isArray(value)) {
+                value.forEach(item => pushFromValue(item));
+                return;
+            }
+
+            if (typeof value === 'object') {
+                const objectKeys = ['secure_url', 'url', 'src', 'path', 'href', 'image', 'imageUrl'];
+                objectKeys.forEach(key => {
+                    if (typeof value[key] === 'string') {
+                        pushFromValue(value[key]);
+                    }
+                });
+            }
+        };
+
+        if (Array.isArray(product.images)) {
+            product.images.forEach(img => pushFromValue(img));
+        }
+
+        const imageKeys = [
+            'image', 'imageCover', 'image_cover', 'imageUrl', 'image_url', 'imageURL',
+            'defaultImage', 'default_image', 'primaryImage', 'mainImage', 'thumbnail',
+            'thumb', 'thumbUrl', 'cover', 'media', 'photo', 'picture', 'previewImage',
+            'preview', 'gallery', 'productImage'
+        ];
+
+        imageKeys.forEach(key => pushFromValue(product[key]));
+
+        const image = candidates.find(src => typeof src === 'string' && src.trim().length > 0);
+        return image || FALLBACK_IMAGE;
+    }
+
+    window.resolveProductImage = resolveProductImage;
+
+    function resolveCategoryImage(category = {}) {
+        const candidates = [];
+
+        const collectFromObject = (value) => {
+            if (!value || typeof value !== 'object') return;
+            ['secure_url', 'url', 'src', 'path', 'href'].forEach(key => {
+                if (typeof value[key] === 'string') {
+                    candidates.push(value[key]);
+                }
+            });
+        };
+
+        if (category.image) {
+            if (typeof category.image === 'string') {
+                candidates.push(category.image);
+            } else {
+                collectFromObject(category.image);
+            }
+        }
+
+        if (Array.isArray(category.images)) {
+            category.images.forEach(img => {
+                if (typeof img === 'string') {
+                    candidates.push(img);
+                } else if (img && typeof img === 'object') {
+                    collectFromObject(img);
+                }
+            });
+        }
+
+        if (category.media) {
+            if (typeof category.media === 'string') {
+                candidates.push(category.media);
+            } else {
+                collectFromObject(category.media);
+            }
+        }
+
+        if (category.icon && typeof category.icon === 'string') {
+            candidates.push(category.icon);
+        }
+
+        const normalized = candidates
+            .map(src => ensureAbsoluteUrl(src))
+            .find(src => typeof src === 'string' && src.trim().length > 0);
+
+        return normalized || 'assets/images/tabs-first-icon.png';
+    }
+
+    function ensureAbsoluteUrl(url) {
+        if (!url || typeof url !== 'string') return '';
+        const trimmed = url.trim();
+
+        if (/^(?:https?:)?\/\//i.test(trimmed) || trimmed.startsWith('data:')) {
+            return trimmed;
+        }
+
+        if (trimmed.startsWith('assets/')) {
+            return trimmed;
+        }
+
+        const cleaned = trimmed.replace(/^\/+/, '');
+        return `${API_BASE_HOST.replace(/\/$/, '')}/${cleaned}`;
+    }
+
+    async function fetchHomeCategories() {
+        const leftColumn = document.getElementById('categoriesColumnLeft');
+        const rightColumn = document.getElementById('categoriesColumnRight');
+
+        if (!leftColumn || !rightColumn) {
+            return;
+        }
+
+        const endpoint = `${API_BASE_URL}/categories`;
+        try {
+            const response = await fetch(endpoint);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const payload = await response.json();
+            console.log('Fetched categories:', payload);
+
+            const categories = Array.isArray(payload?.data?.documents) ? payload.data.documents : [];
+            renderHomeCategories(categories);
+        } catch (error) {
+            console.error('Primary categories fetch failed', error);
+            renderHomeCategories([]);
+        }
+    }
+
+    function normalizeProducts(rawProducts = []) {
+        if (!Array.isArray(rawProducts)) return [];
+
+        return rawProducts.map((product, index) => {
+            const id = product._id || product.id || product.sku || product.handle || `product-${index}`;
+            const name = product.name || product.title || 'منتج بدون اسم';
+            const categoryName = product.category?.name || product.categoryName || 'فئة غير محددة';
+
+            const rawPrice = product.price?.current ?? product.price?.value ?? product.price?.amount ?? product.price ?? product.currentPrice ?? product.salePrice ?? product.basePrice;
+            const numericPrice = sanitizePrice(rawPrice);
+            const price = Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : null;
+
+            const image = resolveProductImage(product);
+            const slug = product.slug || product.handle || id;
+            const description = product.shortDescription || product.description || 'اكتشف المزيد عن هذا المنتج عند فتح التفاصيل.';
+
+            return { id, name, categoryName, price, image, slug, description };
+        });
+    }
+
+    function bindDynamicAddToCart(container) {
+        if (!container) return;
+
+        container.querySelectorAll('.add-to-cart-btn').forEach(button => {
+            if (button.dataset.bound === 'true') return;
+            button.dataset.bound = 'true';
+
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                const card = button.closest('.product-card');
+                if (!card) return;
+
+                const product = {
+                    id: button.dataset.id || card.dataset.id,
+                    name: card.dataset.name,
+                    price: Number(card.dataset.price) || 0,
+                    image: card.dataset.image
+                };
+
+                if (typeof addToCart === 'function') {
+                    addToCart(product);
+                }
+            });
+        });
+    }
+
+    function renderLatestProducts(products = []) {
+        const grid = document.getElementById('latestProductsGrid');
+        const emptyState = document.getElementById('productsEmptyState');
+
+        if (!grid) return;
+
+        const normalized = normalizeProducts(products);
+        const dataset = normalized.length ? normalized : normalizeProducts(HOMEPAGE_FALLBACK_PRODUCTS);
+
+        if (emptyState) {
+            emptyState.hidden = dataset.length !== 0;
+        }
+
+        if (!dataset.length) {
+            grid.innerHTML = '';
+            return;
+        }
+
+        grid.innerHTML = dataset.map(({ id, name, categoryName, price, image, slug, description }) => {
+            const detailId = id || slug || '';
+            const productUrl = detailId ? `./productDetails.html?id=${encodeURIComponent(detailId)}` : '#';
+            const displayPrice = price !== null ? formatPrice(price) : '-';
+            const datasetPrice = price !== null ? price : 0;
+
+            return `
+                <div class="col-lg-4 col-md-6">
+                    <div class="product-card" data-id="${id}" data-name="${name}" data-price="${datasetPrice}" data-image="${image}">
+                        <div class="image-thumb">
+                            <img src="${image}" alt="${name}">
+                        </div>
+                        <div class="down-content">
+                            <span>${categoryName}</span>
+                            <h4>${name}</h4>
+                            <p class="product-description">${description}</p>
+                            <p class="product-price">${displayPrice} <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="" aria-hidden="true" class="saudi-riyal-symbol" /></p>
+                            <div class="product-buttons">
+                                <a href="${productUrl}" class="secondary-button">عرض المنتج</a>
+                                <a href="#" class="add-to-cart-btn secondary-button" data-id="${id}">أضف للسلة</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        bindDynamicAddToCart(grid);
+    }
+
+    async function fetchLatestProducts() {
+        const grid = document.getElementById('latestProductsGrid');
+        if (!grid) return;
+
+        const endpoint = `${API_BASE_URL}/products?limit=6`;
+
+        try {
+            const response = await fetch(endpoint);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const payload = await response.json();
+            console.log('Fetched latest products:', payload);
+
+            const products = Array.isArray(payload?.data?.products)
+                ? payload.data.products
+                : Array.isArray(payload?.data?.documents)
+                    ? payload.data.documents
+                    : Array.isArray(payload?.data)
+                        ? payload.data
+                        : [];
+
+            renderLatestProducts(products);
+        } catch (error) {
+            console.error('Primary products fetch failed', error);
+            renderLatestProducts([]);
+        }
+    }
+
+    /* ===================================================================
+    5. Toast Notification
+    =================================================================== */
+    // Display temporary toast message near bottom of page
+    window.showToast = function(message, type = 'info') {
+        const toast = document.getElementById('add-to-cart-toast');
+        if (toast) {
+            toast.dataset.type = type;
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+                delete toast.dataset.type;
+            }, 3000);
+        }
+    }
+
+    /* ===================================================================
+    6. Add to Cart Functionality
+    =================================================================== */
+    // Add product to session cart (or increase quantity)
+    async function addToCart(product) {
+        if (!product || !product.id) {
+            console.warn('⚠️ Missing product id when adding to cart:', product);
+            showToast('تعذر إضافة هذا المنتج للسلة.', 'error');
+            return;
+        }
+
+        try {
+            const payload = {
+                id: product.id,
+                name: product.name,
+                price: product.price,
+                image: product.image
+            };
+
+            const snapshot = await addProductToCartById(product.id, 1, payload);
+            showToast(`تمت إضافة "${product.name}" إلى السلة!`, 'success');
+            updateCartIndicators();
+            if (typeof cartRenderFunction === 'function') {
+                cartRenderFunction(snapshot);
+            }
+        } catch (error) {
+            console.error('❌ addToCart failed:', error);
+            showToast(error.message || 'تعذر إضافة المنتج للسلة.', 'error');
+        }
+    }
+
+    // Initialize add to cart buttons
+    // Attach click handlers for all "add to cart" buttons
+    function initAddToCart() {
+        const addToCartButtons = document.querySelectorAll('.add-to-cart-btn');
+        addToCartButtons.forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                const productCard = this.closest('.product-card');
+
+                if (productCard) {
+                    const product = {
+                        id: this.dataset.id || productCard.dataset.id,
+                        name: productCard.dataset.name,
+                        price: productCard.dataset.price,
+                        image: productCard.dataset.image
+                    };
+                    addToCart(product);
+                }
+            });
+        });
+    }
+
+    /* ===================================================================
+    7. Dark Mode Toggle
+    =================================================================== */
+    // Initialize theme toggle and persist user preference
+    function initDarkMode() {
+        const themeToggle = document.getElementById('theme-toggle');
+        if (!themeToggle) return;
+
+        // Check for saved theme preference or default to 'light'
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+
+        // Update icon based on current theme
+        updateThemeIcon(currentTheme);
+
+        themeToggle.addEventListener('click', function() {
+            let theme = document.documentElement.getAttribute('data-theme');
+            let newTheme = theme === 'dark' ? 'light' : 'dark';
+            
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        });
+    }
+
+    // Swap toggle icon depending on active theme
+    function updateThemeIcon(theme) {
+        const themeToggle = document.getElementById('theme-toggle');
+        if (!themeToggle) return;
+        
+        const icon = themeToggle.querySelector('i');
+        if (theme === 'dark') {
+            icon.classList.remove('fa-moon');
+            icon.classList.add('fa-sun');
+        } else {
+            icon.classList.remove('fa-sun');
+            icon.classList.add('fa-moon');
+        }
+    }
+
+    /* ===================================================================
+    8. Initialization
+    =================================================================== */
+    ready(function () {
+        handleHeader();
+        handleScrolling();
+        handleCartSidebar();
+        initAddToCart(); // Initialize add to cart functionality
+        initDarkMode(); // Initialize dark mode
+        fetchHomeCategories();
+        fetchLatestProducts();
+        refreshCartState().catch(error => {
+            console.warn('⚠️ Initial cart load failed:', error);
+        });
+    });
+
+})();

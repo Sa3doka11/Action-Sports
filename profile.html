@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="الملف الشخصي">
+        <link rel="apple-touch-icon" sizes="57x57" href="./assets/images/Logo.png">
+    <link rel="apple-touch-icon" sizes="60x60" href="./assets/images/Logo.png">
+    <link rel="apple-touch-icon" sizes="72x72" href="./assets/images/Logo.png">
+    <link rel="apple-touch-icon" sizes="76x76" href="./assets/images/Logo.png">
+    <link rel="apple-touch-icon" sizes="114x114" href="./assets/images/Logo.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="./assets/images/Logo.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="./assets/images/Logo.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="./assets/images/Logo.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/images/Logo.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="./assets/images/Logo.png"> <!-- الحجم الأكبر المدعوم -->
+    <link rel="icon" type="image/png" sizes="32x32" href="./assets/images/Logo.png">
+    <link rel="icon" type="image/png" sizes="64x64" href="./assets/images/Logo.png">
+    <link rel="icon" type="image/png" sizes="96x96" href="./assets/images/Logo.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./assets/images/Logo.png">
+    <link rel="manifest" href="./assets/images/Logo.png"> <!-- تحديث المسار -->
+    <meta name="msapplication-TileColor" content="#ffffff">
+    <meta name="msapplication-TileImage" content="./assets/images/Logo.png">
+    <meta name="author" content="Saftawy">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <title>Profile</title>
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Additional CSS Files -->
+    <link rel="stylesheet" href="assets/css/style-rtl.css">
+        <link rel="stylesheet" href="./assets/css/profile.css">
+                <link rel="stylesheet" href="./assets/css/popup.css">
+
+</head>
+
+<body>
+
+    <!-- ***** Preloader Start ***** -->
+    <div id="js-preloader" class="js-preloader">
+        <div class="preloader-inner">
+            <span class="dot"></span>
+            <div class="dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    </div>
+    <!-- ***** Preloader End ***** -->
+
+    <!-- ***** Header Area Start ***** -->
+    <header class="header-area header-sticky background-header">
+        <div class="container">
+            <div class="row">
+                <div class="col-12">
+                    <nav class="main-nav">
+                        <!-- ***** Logo Start ***** -->
+                        <div class="logo-container">
+                            <a href="./index.html" class="logo">Ction<em> Sports</em></a>
+                            <img src="assets/images/Logo.webp" alt="logo">
+                        </div>
+                        <!-- ***** Logo End ***** -->
+                            <li class="theme-toggle-wrapper">
+                            <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle Dark Mode">
+                                <i class="fa fa-moon"></i>
+                            </button>
+                        </li>
+                        <!-- ***** Menu Start ***** -->
+                        <ul class="nav">
+                            <li><a href="./index.html#top">الرئيسية</a></li>
+                            <li><a href="./index.html#features">الفئات</a></li>
+                            <li><a href="./products.html">المنتجات</a></li>
+                            <li><a href="./index.html#contact-us">تواصل معنا</a></li>
+                         
+                            <li class="cart-icon-wrapper">
+                                <a href="#" id="cart-icon">
+                                    <img src="assets/images/cart-icon.png" alt="سلة المشتريات" class="cart-img-icon">
+                                    <span id="cart-count">0</span>
+                                </a>
+                            </li>
+                        
+                        </ul>
+
+                        <!-- Login Popup -->
+                        <div id="loginPopup" class="popup">
+                            <div class="popup-content">
+                                <span class="close-btn" onclick="hidePopup('login')">&times;</span>
+                                <form>
+                                    <div class="input-group">
+                                        <input type="email" id="email" required>
+                                        <label for="email">البريد الإلكتروني</label>
+                                    </div>
+                                    <div class="input-group">
+                                        <input type="password" id="password" required>
+                                        <label for="password">كلمة المرور</label>
+                                    </div>
+                                    <button type="submit" class="login-btn">تسجيل الدخول</button>
+                                </form>
+                                <p>ليس لديك حساب؟ <a class="signup-link" onclick="showPopup('signup')">تسجيل جديد</a></p>
+                            </div>
+                        </div>
+
+                        <!-- Signup Popup -->
+                        <div id="signupPopup" class="popup">
+                            <div class="popup-content">
+                                <span class="close-btn" onclick="hidePopup('signup')">&times;</span>
+                                <form>
+                                    <div class="input-group">
+                                        <input type="text" id="username" required>
+                                        <label for="username">اسم المستخدم</label>
+                                    </div>
+                                    <div class="input-group">
+                                        <input type="email" id="email-signup" required>
+                                        <label for="email-signup">البريد الإلكتروني</label>
+                                    </div>
+                                    <div class="input-group">
+                                        <input type="password" id="password-signup" required>
+                                        <label for="password-signup">كلمة المرور</label>
+                                    </div>
+                                    <button type="submit" class="login-btn">تسجيل جديد</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <a class='menu-trigger'>
+                            <span>القائمة</span>
+                        </a>
+                        <!-- ***** Menu End ***** -->
+                    </nav>
+                </div>
+            </div>
+        </div>
+    </header>
+    <!-- ***** Header Area End ***** -->
+
+    <!-- ***** Profile Section Start ***** -->
+    <section class="profile-section">
+        <div class="profile-container">
+            <!-- Profile Header -->
+            <div class="profile-header">
+                <div class="profile-header-content">
+
+                    <!-- Info -->
+                    <div class="profile-info">
+                        <h1 class="profile-name" id="userName">الملك سلمان بن عبد العزيز   <span class="verified-badge"><i class="fa fa-check"></i></span></h1>
+                        <p class="profile-email"><i class="fa fa-envelope"></i> <span id="userEmail">user@gmail.com</span></p>
+                        <div class="profile-stats">
+                            <div class="stat-item">
+                                <div class="stat-number">8</div>
+                                <div class="stat-label">الطلبات</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-number">15</div>
+                                <div class="stat-label">اجمالي المشتريات </div>
+                            </div>
+
+                        </div>
+                        <div class="profile-actions">
+                            <button class="action-btn primary" onclick="editProfile()">
+                                <i class="fa fa-edit"></i> تعديل الملف
+                            </button>
+                            <button class="action-btn secondary" onclick="logout()">
+                                <i class="fa fa-sign-out-alt"></i> تسجيل الخروج
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Content Grid -->
+            <div class="profile-grid">
+                <!-- Personal Info -->
+                <div class="info-card">
+                    <div class="card-header">
+                        <div class="card-icon"><i class="fa fa-user"></i></div>
+                        <h2 class="card-title">المعلومات الشخصية</h2>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label"><i class="fa fa-user"></i> الاسم الكامل</span>
+                        <span class="info-value" id="fullName">الملك سلمان بن عبد العزيز  </span>
+                    </div>
+                 
+                    <div class="info-row">
+                        <span class="info-label"><i class="fa fa-phone"></i> رقم الهاتف</span>
+                        <span class="info-value" id="phone">012121212</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label"><i class="fa fa-map-marker-alt"></i> العنوان</span>
+                        <span class="info-value" id="address" >الرياض ش الملك فهد </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label"><i class="fa fa-city"></i> المدينة</span>
+                        <span class="info-value" id="city">الرياض</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label"><i class="fa fa-mail-bulk"></i> الرمز البريدي</span>
+                        <span class="info-value" id="postalCode">12252</span>
+                    </div>
+                    <button class="edit-btn" onclick="editPersonalInfo()" title="تعديل">
+                        <i class="fa fa-edit"></i>
+                    </button>
+                </div>
+
+                <!-- Orders -->
+                <div class="info-card orders-card">
+                    <div class="card-header">
+                        <div class="card-icon"><i class="fa fa-shopping-bag"></i></div>
+                        <h2 class="card-title">الطلبات السابقة</h2>
+                    </div>
+                    <table class="orders-table">
+                        <thead>
+                            <tr>
+                                <th>رقم الطلب</th>
+                                <th>التاريخ</th>
+                                <th>الإجمالي</th>
+                                <th>الحالة</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>#123456</td>
+                                <td>2023-10-15</td>
+                                <td>15,000 <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></td>
+                                <td><span class="order-status status-delivered">تم التوصيل</span></td>
+
+                            </tr>
+                            <tr>
+                                <td>#123455</td>
+                                <td>2023-10-10</td>
+                                <td>8,500 <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></td>
+                                <td><span class="order-status status-shipped">تم الشحن</span></td>
+                               
+                            </tr>
+                            <tr>
+                                <td>#123454</td>
+                                <td>2023-10-05</td>
+                                <td>22,000 <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></td>
+                                <td><span class="order-status status-pending">قيد المعالجة</span></td>
+                                
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        <!-- ***** Profile Section End ***** -->
+
+        <!-- ***** Footer Start ***** -->
+        <footer>
+            <div class="container">
+                <div class="row">
+                    <div class="col-12">
+                        <p style="color: rgba(255,255,255,0.8);">Copyright 2025 © Action Sports</p>
+                    </div>
+                </div>
+            </div>
+        </footer>
+        <!-- ***** Footer End ***** -->
+ <!-- ***** Cart Sidebar Start ***** -->
+    <div id="cart-popup" class="cart-popup">
+        <div class="cart-popup-overlay"></div>
+        <div class="cart-popup-content">
+            <div class="cart-popup-header">
+                <h2>سلة المشتريات</h2>
+                <button id="close-cart-btn" class="close-cart-btn">&times;</button>
+            </div>
+            <div id="cart-items-list" class="cart-items-list">
+                <p class="cart-empty-msg">سلة المشتريات فارغة.</p>
+            </div>
+            <div class="cart-popup-footer">
+                <div class="cart-total">
+                    <strong>الإجمالي:</strong> <span id="cart-total-price">0 <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></span>
+                </div>
+                <a href="./cart.html" class="main-button checkout-btn">إتمام الشراء</a>
+            </div>
+        </div>
+    </div>
+    <!-- ***** Cart Sidebar End ***** -->
+
+    <!-- ***** Add to Cart Toast Start ***** -->
+    <div id="add-to-cart-toast" class="add-to-cart-toast">
+        تمت إضافة المنتج إلى السلة بنجاح!
+    </div>
+    <!-- ***** Add to Cart Toast End ***** -->
+
+        <!-- Scripts -->
+        <script src="assets/js/script.js"></script>
+        <script src="assets/js/profile.js"></script>
+
+    </body>
+
+</html>
