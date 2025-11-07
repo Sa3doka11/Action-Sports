@@ -19,7 +19,6 @@
     <link rel="icon" type="image/png" sizes="64x64" href="./assets/images/Logo.png">
     <link rel="icon" type="image/png" sizes="96x96" href="./assets/images/Logo.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./assets/images/Logo.png">
-    <link rel="manifest" href="./assets/images/Logo.png"> <!-- تحديث المسار -->
     <meta name="msapplication-TileColor" content="#ffffff">
     <meta name="msapplication-TileImage" content="./assets/images/Logo.png">
     <meta name="author" content="Saftawy">
@@ -140,71 +139,58 @@
     <!-- ***** Profile Section Start ***** -->
     <section class="profile-section">
         <div class="profile-container">
-            <!-- Profile Header -->
-            <div class="profile-header">
-                <div class="profile-header-content">
+            <!-- Profile top row -->
+            <div class="profile-top-grid">
+                <div class="profile-header">
+                    <div class="profile-header-content">
 
-                    <!-- Info -->
-                    <div class="profile-info">
-                        <h1 class="profile-name" id="userName">الملك سلمان بن عبد العزيز   <span class="verified-badge"><i class="fa fa-check"></i></span></h1>
-                        <p class="profile-email"><i class="fa fa-envelope"></i> <span id="userEmail">user@gmail.com</span></p>
-                        <div class="profile-stats">
-                            <div class="stat-item">
-                                <div class="stat-number">8</div>
-                                <div class="stat-label">الطلبات</div>
-                            </div>
-                            <div class="stat-item">
-                                <div class="stat-number">15</div>
-                                <div class="stat-label">اجمالي المشتريات </div>
-                            </div>
+                        <!-- Info -->
+                        <div class="profile-info">
+                            <h1 class="profile-name" id="userName">الملك سلمان بن عبد العزيز   <span class="verified-badge"><i class="fa fa-check"></i></span></h1>
+                            <p class="profile-email"><i class="fa fa-envelope"></i> <span id="userEmail">user@gmail.com</span></p>
+                            <div class="profile-stats">
+                                <div class="stat-item">
+                                    <div class="stat-number">8</div>
+                                    <div class="stat-label">الطلبات</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-number">15</div>
+                                    <div class="stat-label">اجمالي المشتريات </div>
+                                </div>
 
+                            </div>
+                            <div class="profile-actions">
+                                <button class="action-btn primary" onclick="editProfile()">
+                                    <i class="fa fa-edit"></i> تعديل الملف
+                                </button>
+                                <button class="action-btn secondary" onclick="logout()">
+                                    <i class="fa fa-sign-out-alt"></i> تسجيل الخروج
+                                </button>
+                            </div>
                         </div>
-                        <div class="profile-actions">
-                            <button class="action-btn primary" onclick="editProfile()">
-                                <i class="fa fa-edit"></i> تعديل الملف
-                            </button>
-                            <button class="action-btn secondary" onclick="logout()">
-                                <i class="fa fa-sign-out-alt"></i> تسجيل الخروج
-                            </button>
+                    </div>
+                </div>
+
+                <!-- Addresses -->
+                <div class="info-card addresses-card" id="addressesCard">
+                    <div class="card-header">
+                        <div class="card-icon"><i class="fa fa-map-marker-alt"></i></div>
+                        <h2 class="card-title">عناوين الشحن</h2>
+                    </div>
+                    <div class="addresses-content">
+                        <div id="addressesEmptyState" class="addresses-empty" style="display: none;">
+                            لا توجد عناوين محفوظة بعد.
                         </div>
+                        <div id="addressesList" class="addresses-list"></div>
+                        <button class="action-btn primary" id="addAddressBtn">
+                            <i class="fa fa-plus"></i> إضافة عنوان جديد
+                        </button>
                     </div>
                 </div>
             </div>
 
             <!-- Content Grid -->
             <div class="profile-grid">
-                <!-- Personal Info -->
-                <div class="info-card">
-                    <div class="card-header">
-                        <div class="card-icon"><i class="fa fa-user"></i></div>
-                        <h2 class="card-title">المعلومات الشخصية</h2>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label"><i class="fa fa-user"></i> الاسم الكامل</span>
-                        <span class="info-value" id="fullName">الملك سلمان بن عبد العزيز  </span>
-                    </div>
-                 
-                    <div class="info-row">
-                        <span class="info-label"><i class="fa fa-phone"></i> رقم الهاتف</span>
-                        <span class="info-value" id="phone">012121212</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label"><i class="fa fa-map-marker-alt"></i> العنوان</span>
-                        <span class="info-value" id="address" >الرياض ش الملك فهد </span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label"><i class="fa fa-city"></i> المدينة</span>
-                        <span class="info-value" id="city">الرياض</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label"><i class="fa fa-mail-bulk"></i> الرمز البريدي</span>
-                        <span class="info-value" id="postalCode">12252</span>
-                    </div>
-                    <button class="edit-btn" onclick="editPersonalInfo()" title="تعديل">
-                        <i class="fa fa-edit"></i>
-                    </button>
-                </div>
-
                 <!-- Orders -->
                 <div class="info-card orders-card">
                     <div class="card-header">
@@ -218,29 +204,17 @@
                                 <th>التاريخ</th>
                                 <th>الإجمالي</th>
                                 <th>الحالة</th>
+                                <th>الإجراءات</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <tr>
-                                <td>#123456</td>
-                                <td>2023-10-15</td>
-                                <td>15,000 <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></td>
-                                <td><span class="order-status status-delivered">تم التوصيل</span></td>
-
-                            </tr>
-                            <tr>
-                                <td>#123455</td>
-                                <td>2023-10-10</td>
-                                <td>8,500 <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></td>
-                                <td><span class="order-status status-shipped">تم الشحن</span></td>
-                               
-                            </tr>
-                            <tr>
-                                <td>#123454</td>
-                                <td>2023-10-05</td>
-                                <td>22,000 <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></td>
-                                <td><span class="order-status status-pending">قيد المعالجة</span></td>
-                                
+                        <tbody id="ordersTableBody">
+                            <tr class="orders-loading-row">
+                                <td colspan="5">
+                                    <div class="orders-loading">
+                                        <i class="fa fa-spinner fa-spin"></i>
+                                        <span>جاري تحميل الطلبات...</span>
+                                    </div>
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -248,6 +222,20 @@
             </div>
         </section>
         <!-- ***** Profile Section End ***** -->
+
+        <div id="orderDetailsModal" class="order-details-modal" style="display: none;">
+            <div class="order-details-content">
+                <button class="order-details-close" aria-label="إغلاق التفاصيل">&times;</button>
+                <div class="order-details-header">
+                    <h3>تفاصيل الطلب</h3>
+                    <span class="order-details-number"></span>
+                </div>
+                <div class="order-details-body"></div>
+                <div class="order-details-footer">
+                    <button type="button" class="order-details-close-btn">إغلاق</button>
+                </div>
+            </div>
+        </div>
 
         <!-- ***** Footer Start ***** -->
         <footer>

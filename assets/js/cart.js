@@ -1,11 +1,24 @@
 /* ===================================================================
-8. Cart Page Functionality payment methods
+8. Cart Page Functionality with Backend Integration
 =================================================================== */
 
 (function () {
     'use strict';
-
+    const API_BASE_HOST = "https://action-sports-api.vercel.app/api";
     const FALLBACK_IMAGE = 'assets/images/product1.png';
+    const SHIPPING_FEE = 50;
+    const CASH_PAYMENT_METHOD = 'cash';
+    const CURRENCY_ICON_HTML = '<img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;">';
+
+    const ORDER_ENDPOINTS = {
+        create: (cartId) => `${API_BASE_HOST}/orders${cartId ? `/${cartId}` : ''}`,
+        getAll: () => `${API_BASE_HOST}/orders`,
+        getById: (id) => `${API_BASE_HOST}/orders/${id}`,
+        getMyOrders: () => `${API_BASE_HOST}/orders/me`,
+        deliver: (id) => `${API_BASE_HOST}/orders/${id}/deliver`,
+        cancel: (id) => `${API_BASE_HOST}/orders/${id}/cancel`
+    };
+
     const productMetadataCache = (() => {
         if (typeof window !== 'undefined' && window.__actionSportsProductMetadata__ instanceof Map) {
             return window.__actionSportsProductMetadata__;
@@ -40,6 +53,10 @@
         return Number.isFinite(number) ? number.toLocaleString('ar-EG') : value;
     }
 
+    function renderCurrencyWithIcon(value) {
+        return `${formatCartPrice(value)} ${CURRENCY_ICON_HTML}`;
+    }
+
     function renderCart() {
         const container = document.getElementById('cartContainer');
         if (!container) return;
@@ -70,9 +87,23 @@
             return;
         }
 
-        const subtotal = state.totals.subtotal || 0;
-        const shipping = state.totals.shipping != null ? state.totals.shipping : 50;
-        const total = state.totals.total || (subtotal + shipping);
+        const subtotal = Number(state.totals?.subtotal) || state.items.reduce((sum, item) => {
+            const price = Number(item?.price) || 0;
+            const quantity = Number(item?.quantity) || 0;
+            return sum + (price * quantity);
+        }, 0);
+
+        const shipping = (() => {
+            const declared = Number(state.totals?.shipping);
+            if (Number.isFinite(declared) && declared > 0) return declared;
+            return state.items.length ? SHIPPING_FEE : 0;
+        })();
+
+        const total = (() => {
+            const declared = Number(state.totals?.total);
+            if (Number.isFinite(declared) && declared > 0) return declared;
+            return subtotal + shipping;
+        })();
 
         const itemsHTML = state.items.map(item => {
             const metadata = item?.productId ? productMetadataCache.get(item.productId) : null;
@@ -94,7 +125,7 @@
                 </div>
                 <div class="cart-item-details">
                     <h3>${item.name}</h3>
-                    <div class="cart-item-price">${formatCartPrice(item.price)} <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></img></div>
+                    <div class="cart-item-price">${renderCurrencyWithIcon(item.price)}</div>
                     <div class="cart-item-actions">
                         <div class="quantity-control">
                             <button class="quantity-btn" data-action="decrease" data-id="${item.id}">
@@ -125,15 +156,15 @@
                     <h2>ملخص الطلب</h2>
                     <div class="summary-row">
                         <span>المجموع الفرعي:</span>
-                        <span>${formatCartPrice(subtotal)} <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></img></span>
+                        <span>${renderCurrencyWithIcon(subtotal)}</span>
                     </div>
                     <div class="summary-row">
                         <span>الشحن:</span>
-                        <span>${formatCartPrice(shipping)} <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></img></span>
+                        <span>${renderCurrencyWithIcon(shipping)}</span>
                     </div>
                     <div class="summary-row total">
                         <span>الإجمالي:</span>
-                        <span class="price">${formatCartPrice(total)} <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;"></img></span>
+                        <span class="price" id="orderTotalValue">${renderCurrencyWithIcon(total)}</span>
                     </div>
                     <button class="checkout-btn" id="checkoutButton">
                         <i class="fa fa-credit-card"></i> تأكيد الطلب
@@ -172,60 +203,25 @@
                                 <select name="payment_method" id="paymentMethod" required>
                                     <option value="">اختر طريقة الدفع</option>
                                     <option value="cash">الدفع عند الاستلام</option>
-                                    <option value="instapay">انستاباي (InstaPay)</option>
                                     <option value="installment">برنامج التقسيط</option>
                                     <option value="card">بطاقة ائتمان</option>
                                 </select>
                             </div>
 
-                            <div class="form-group payment-field" id="instaPayField" style="display: none;">
+                            <div id="installmentProviders" class="payment-field" style="display: none;">
                                 <div class="payment-info-alert">
-                                    <i class="fa fa-info-circle"></i>
+                                    <i class="fa fa-hand-holding-usd"></i>
                                     <p>
-                                        <strong>الدفع عبر انستاباي:</strong><br>
-                                        سيتم التواصل معك لإتمام عملية الدفع عبر انستاباي. تأكد من إدخال رقم المحفظة الصحيح.
+                                        اختر مقدم خدمة التقسيط المفضل لديك.
                                     </p>
                                 </div>
-                                <label>
-                                    <i class="fa fa-mobile-alt"></i> رقم المحفظة (InstaPay) *
-                                </label>
-                                <input type="text" name="instapay_number" placeholder="01234567890" pattern="[0-9]{11}" maxlength="11">
-                                <small style="color: #7a7a7a; display: block; margin-top: 5px;">
-                                    <i class="fa fa-check-circle" style="color: #28a745;"></i> أدخل رقم محفظة انستاباي المسجل باسمك
-                                </small>
-                            </div>
-
-                            <div id="cardFields" class="payment-field" style="display: none;">
                                 <div class="form-group">
-                                    <label>
-                                        <i class="fa fa-credit-card"></i> رقم البطاقة *
-                                    </label>
-                                    <input type="text" name="card_number" placeholder="1234 5678 9012 3456" maxlength="19">
-                                </div>
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label>تاريخ الانتهاء *</label>
-                                        <input type="text" name="card_expiry" placeholder="MM/YY" maxlength="5">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>CVV *</label>
-                                        <input type="text" name="card_cvv" placeholder="123" maxlength="3">
-                                    </div>
-                                </div>
-                                <div class="form-group">
-                                    <label>اسم حامل البطاقة *</label>
-                                    <input type="text" name="card_holder" placeholder="الاسم كما يظهر على البطاقة">
-                                </div>
-                            </div>
-
-                            <div id="installmentMessage" class="payment-field" style="display: none;">
-                                <div class="payment-info-alert">
-                                    <i class="fa fa-info-circle"></i>
-                                    <p>
-                                        <strong>برنامج التقسيط:</strong><br>
-                                        خدمة التقسيط غير متاحة حالياً، لكننا نعمل على توفيرها قريباً.
-                                        سنقوم بإبلاغك فور تفعيلها.
-                                    </p>
+                                    <label>مقدم خدمة التقسيط *</label>
+                                    <select name="installment_provider">
+                                        <option value="">اختر البرنامج</option>
+                                        <option value="tabby">Tabby</option>
+                                        <option value="tamara">Tamara</option>
+                                    </select>
                                 </div>
                             </div>
 
@@ -261,7 +257,7 @@
         const checkoutButton = container.querySelector('#checkoutButton');
 
         if (checkoutButton) {
-            checkoutButton.addEventListener('click', function(event) {
+            checkoutButton.addEventListener('click', function (event) {
                 if (typeof requireAuth === 'function' && !requireAuth(event, 'cart.html')) {
                     if (typeof showToast === 'function') {
                         showToast('يجب تسجيل الدخول قبل إتمام الشراء.', 'warning');
@@ -274,6 +270,7 @@
 
         if (paymentMethod) {
             paymentMethod.addEventListener('change', handlePaymentMethodChange);
+            updateSummaryTotals(paymentMethod.value);
         }
 
         container.querySelectorAll('.quantity-btn').forEach(button => {
@@ -332,75 +329,359 @@
 
     function handlePaymentMethodChange() {
         const paymentMethod = document.getElementById('paymentMethod');
-        const instaPayField = document.getElementById('instaPayField');
-        const cardFields = document.getElementById('cardFields');
         const cashMessage = document.getElementById('cashMessage');
-        const installmentMessage = document.getElementById('installmentMessage');
+        const installmentProviders = document.getElementById('installmentProviders');
 
-        if (!paymentMethod || !instaPayField || !cardFields || !cashMessage || !installmentMessage) {
+        if (!paymentMethod || !cashMessage || !installmentProviders) {
             return;
         }
 
-        instaPayField.style.display = 'none';
-        cardFields.style.display = 'none';
         cashMessage.style.display = 'none';
-        installmentMessage.style.display = 'none';
+        installmentProviders.style.display = 'none';
 
-        document.querySelectorAll('.payment-field input').forEach(input => {
-            input.removeAttribute('required');
-        });
+        const providerSelect = installmentProviders.querySelector('select');
+        if (providerSelect) {
+            providerSelect.removeAttribute('required');
+            providerSelect.selectedIndex = 0;
+        }
 
         switch (paymentMethod.value) {
-            case 'instapay': {
-                instaPayField.style.display = 'block';
-                const instaPayInput = instaPayField.querySelector('input');
-                if (instaPayInput) instaPayInput.setAttribute('required', 'required');
-                break;
-            }
             case 'card': {
-                cardFields.style.display = 'block';
-                cardFields.querySelectorAll('input').forEach(input => {
-                    input.setAttribute('required', 'required');
-                });
+                window.location.href = 'card-payment.html';
                 break;
             }
             case 'installment': {
-                installmentMessage.style.display = 'block';
+                installmentProviders.style.display = 'block';
+                if (providerSelect) {
+                    providerSelect.setAttribute('required', 'required');
+                }
                 break;
             }
-            case 'cash': {
+            case CASH_PAYMENT_METHOD: {
                 cashMessage.style.display = 'block';
                 break;
             }
             default:
                 break;
         }
+
+        updateSummaryTotals(paymentMethod.value);
     }
 
-    function submitOrder(event) {
-        event.preventDefault();
-        const form = event.target;
-        const formData = new FormData(form);
-        const orderData = {};
-
-        for (const [key, value] of formData.entries()) {
-            orderData[key] = value;
-        }
+    function updateSummaryTotals(selectedMethod) {
+        const totalValue = document.getElementById('orderTotalValue');
 
         const state = getCartStateSafe();
-        orderData.items = state.items;
-        orderData.total = state.totals.total;
+        const subtotal = Number(state.totals?.subtotal) || 0;
+        const shipping = state.totals?.shipping != null ? state.totals.shipping : SHIPPING_FEE;
+        const total = state.totals?.total || (subtotal + shipping);
 
-        console.log('Order Data:', orderData);
-        showToast('تم إرسال طلبك بنجاح! سيتم التواصل معك للتأكيد.', 'success');
+        if (totalValue) {
+            totalValue.innerHTML = renderCurrencyWithIcon(total);
+        }
+    }
 
-        ensureCartStateLoaded()
-            .then(() => clearCartContents())
-            .catch(error => console.error('❌ Failed to clear cart after order:', error));
+    function getAuthTokenSafe() {
+        return typeof getAuthToken === 'function' ? getAuthToken() : null;
+    }
 
-        const modal = document.getElementById('successModal');
-        if (modal) {
-            modal.style.display = 'flex';
+    function getCurrentUserSafe() {
+        return typeof getAuthUser === 'function' ? getAuthUser() : null;
+    }
+
+    function ensureAuthenticated(event) {
+        const token = getAuthTokenSafe();
+        if (token) {
+            return token;
+        }
+
+        if (typeof requireAuth === 'function') {
+            requireAuth(event, 'cart.html');
+        }
+
+        showToast('يجب تسجيل الدخول لإتمام الطلب.', 'warning');
+        return null;
+    }
+
+    function isCashPayment(formData) {
+        const selectedMethod = formData.get('payment_method');
+        if (selectedMethod === CASH_PAYMENT_METHOD) {
+            return true;
+        }
+
+        if (selectedMethod === 'installment') {
+            const provider = (formData.get('installment_provider') || '').trim();
+            if (!provider) {
+                showToast('يرجى اختيار مقدم خدمة التقسيط.', 'info');
+                return false;
+            }
+            return true;
+        }
+
+        showToast('سيتم تحويلك لصفحة الدفع بالبطاقة.', 'info');
+        return false;
+    }
+
+    function buildShippingAddress(formData) {
+        const addressEntries = {
+            details: (formData.get('address') || '').trim(),
+            phone: (formData.get('phone') || '').trim(),
+            city: (formData.get('city') || '').trim(),
+            postalCode: (formData.get('postal') || '').trim()
+        };
+
+        return Object.fromEntries(Object.entries(addressEntries).filter(([, value]) => Boolean(value)));
+    }
+
+    function getCartIdSafe() {
+        const state = getCartStateSafe();
+
+        // Try multiple possible sources for cart ID
+        if (state?.id) return state.id;
+        if (state?._id) return state._id;
+        if (typeof cartState !== 'undefined' && cartState?.id) return cartState.id;
+        if (typeof cartState !== 'undefined' && cartState?._id) return cartState._id;
+
+        // Try from localStorage
+        try {
+            const savedCart = localStorage.getItem('cart');
+            if (savedCart) {
+                const parsed = JSON.parse(savedCart);
+                if (parsed?.id) return parsed.id;
+                if (parsed?._id) return parsed._id;
+            }
+        } catch (e) {
+            console.warn('Failed to parse cart from localStorage:', e);
+        }
+
+        console.warn('⚠️ Cart ID not found in state');
+        return null;
+    }
+
+    function buildOrderPayload(formData, state, user) {
+        const subtotal = Number(state.totals?.subtotal) || 0;
+
+        const payload = {
+            paymentMethod: formData.get('payment_method') || CASH_PAYMENT_METHOD,
+            shippingPrice: SHIPPING_FEE,
+            taxPrice: 0,
+            totalOrderPrice: subtotal + SHIPPING_FEE,
+            cartItems: state.items.map(item => ({
+                productId: item.productId || item.id,
+                quantity: item.quantity,
+                price: item.price,
+                name: item.name || 'منتج'
+            }))
+        };
+
+        // DON'T include cartId in payload - it goes in URL
+        // Add user ID if available
+        if (user?.id) {
+            payload.userId = user.id;
+        } else if (user?._id) {
+            payload.userId = user._id;
+        }
+
+        // Customer name
+        const customerName = (formData.get('fullname') || user?.name || '').trim();
+        payload.customerName = customerName || 'عميل';
+
+        // Customer email/account
+        if (user?.email) {
+            payload.customerAccount = user.email;
+        }
+
+        // Notes
+        const notes = (formData.get('notes') || '').trim();
+        if (notes) {
+            payload.notes = notes;
+        }
+
+        // Shipping address
+        const shippingAddress = buildShippingAddress(formData);
+        if (Object.keys(shippingAddress).length) {
+            payload.shippingAddress = shippingAddress;
+        }
+
+        const paymentMethod = payload.paymentMethod;
+        const installmentProvider = (formData.get('installment_provider') || '').trim();
+
+        if (paymentMethod === 'installment' && installmentProvider) {
+            payload.paymentDetails = {
+                provider: installmentProvider
+            };
+        }
+
+        console.log('📦 Order Payload:', payload);
+        return payload;
+    }
+
+    async function postOrderRequest(payload, token, cartId) {
+        if (!cartId) {
+            throw new Error('Cart ID is required to create an order');
+        }
+
+        console.log('🚀 Sending order to backend...');
+        console.log('📍 Endpoint:', ORDER_ENDPOINTS.create(cartId));
+        console.log('🔑 Token:', token ? 'Present' : 'Missing');
+        console.log('📦 Payload:', payload);
+
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        if (token) {
+            // Try both authorization formats
+            headers['Authorization'] = `Bearer ${token}`;
+            headers['token'] = token; // Some backends use this
+        }
+
+        const response = await fetch(ORDER_ENDPOINTS.create(cartId), {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(payload)
+        });
+
+        console.log('📡 Response status:', response.status);
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            console.error('❌ Backend error:', result);
+
+            // Special handling for authorization errors
+            if (response.status === 401 || response.status === 403) {
+                console.error('🚫 Authorization failed - Token might be invalid or expired');
+                console.error('Current token:', token);
+            }
+
+            const message = result?.message || result?.error || 'تعذر إنشاء الطلب. حاول مرة أخرى.';
+            const error = new Error(message);
+            error.status = response.status;
+            error.details = result;
+            throw error;
+        }
+
+        console.log('✅ Order created successfully:', result);
+        return result;
+    }
+
+    function toggleSubmitButton(submitBtn, isLoading, originalContent) {
+        if (!submitBtn) return;
+
+        if (isLoading) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري المعالجة...';
+        } else {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalContent;
+        }
+    }
+
+    async function submitOrder(event) {
+        event.preventDefault();
+
+        const form = event.target;
+        const submitBtn = form.querySelector('[type="submit"]');
+        const originalBtnContent = submitBtn ? submitBtn.innerHTML : '';
+
+        const formData = new FormData(form);
+        const token = ensureAuthenticated(event);
+        if (!token) {
+            return;
+        }
+
+        const paymentMethod = formData.get('payment_method');
+        if (paymentMethod === 'card') {
+            window.location.href = 'card-payment.html';
+            return;
+        }
+
+        if (!isCashPayment(formData)) {
+            return;
+        }
+
+        // Ensure cart is loaded and fresh
+        console.log('🔄 Refreshing cart state...');
+        await ensureCartStateLoaded(true);
+
+        const state = getCartStateSafe();
+        if (!Array.isArray(state.items) || !state.items.length) {
+            showToast('سلة المشتريات فارغة.', 'warning');
+            return;
+        }
+
+        // Validate cart ID
+        const cartId = getCartIdSafe();
+        if (!cartId) {
+            showToast('خطأ في معرف السلة. يرجى تحديث الصفحة والمحاولة مرة أخرى.', 'error');
+            console.error('❌ Cannot proceed without cart ID');
+            return;
+        }
+
+        const user = getCurrentUserSafe();
+
+        // Debug logs
+        console.log('👤 Current User:', user);
+        console.log('🛒 Cart ID:', cartId);
+        console.log('🛒 Full Cart State:', state);
+        console.log('🔑 Token:', token);
+
+        // Check if cart belongs to user (if userId is available in cart)
+        if (state.userId && user?.id && state.userId !== user.id) {
+            console.error('❌ Cart user mismatch!');
+            console.error('Cart userId:', state.userId);
+            console.error('Current user id:', user.id);
+            showToast('هذه السلة لا تنتمي لحسابك. يرجى تحديث الصفحة.', 'error');
+            return;
+        }
+
+        const payload = buildOrderPayload(formData, state, user);
+
+        toggleSubmitButton(submitBtn, true, originalBtnContent);
+
+        try {
+            const orderResult = await postOrderRequest(payload, token, cartId);
+
+            showToast('تم إنشاء الطلب بنجاح! سيتم التواصل معك قريباً.', 'success');
+
+            // Clear cart after successful order
+            try {
+                if (typeof clearCartContents === 'function') {
+                    await clearCartContents();
+                }
+            } catch (clearError) {
+                console.error('❌ Failed to clear cart after order:', clearError);
+            }
+
+            // Keep user on the same page and show success modal if available
+            const successModal = document.getElementById('successModal');
+            if (successModal) {
+                successModal.style.display = 'flex';
+            }
+
+            renderCart();
+            updateCartCount();
+
+        } catch (error) {
+            console.error('❌ Order submission failed:', error);
+
+            let errorMessage = 'تعذر إنشاء الطلب. حاول مرة أخرى.';
+
+            if (error.status === 400) {
+                errorMessage = error.message || 'بيانات الطلب غير صحيحة.';
+            } else if (error.status === 401) {
+                errorMessage = 'انتهت جلستك. يرجى تسجيل الدخول مرة أخرى.';
+            } else if (error.status === 403) {
+                errorMessage = 'هذه السلة لا تنتمي لحسابك.';
+            } else if (error.status === 404) {
+                errorMessage = 'السلة غير موجودة. يرجى تحديث الصفحة.';
+            } else if (error.status === 500) {
+                errorMessage = 'خطأ في الخادم. يرجى المحاولة لاحقاً.';
+            }
+
+            showToast(errorMessage, 'error');
+        } finally {
+            toggleSubmitButton(submitBtn, false, originalBtnContent);
         }
     }
 
@@ -411,10 +692,20 @@
         }
     }
 
+    // Initialize on page load
     window.addEventListener('load', () => {
-        ensureCartStateLoaded()
+        console.log('🛒 Cart page loaded');
+        ensureCartStateLoaded(true)
+            .then(() => {
+                const cartId = getCartIdSafe();
+                if (cartId) {
+                    console.log('✅ Cart loaded with ID:', cartId);
+                } else {
+                    console.warn('⚠️ Cart loaded but no ID found');
+                }
+            })
             .catch(error => {
-                console.warn('⚠️ Failed to load cart on cart page:', error);
+                console.error('❌ Failed to load cart on page load:', error);
             })
             .finally(() => {
                 renderCart();
@@ -422,7 +713,9 @@
             });
     });
 
+    // Listen for cart updates
     document.addEventListener('cart:updated', () => {
+        console.log('🔄 Cart updated event received');
         renderCart();
         updateCartCount();
     });
@@ -440,42 +733,10 @@
         }
     });
 
+    // Input formatting
     document.addEventListener('DOMContentLoaded', function () {
-        const cardNumberInput = document.querySelector('input[name="card_number"]');
-        if (cardNumberInput) {
-            cardNumberInput.addEventListener('input', function (e) {
-                let value = e.target.value.replace(/\s/g, '');
-                let formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
-                e.target.value = formattedValue;
-            });
-        }
-
-        // Format expiry date (MM/YY)
-        const expiryInput = document.querySelector('input[name="card_expiry"]');
-        if (expiryInput) {
-            expiryInput.addEventListener('input', function (e) {
-                let value = e.target.value.replace(/\D/g, '');
-                if (value.length >= 2) {
-                    value = value.substring(0, 2) + '/' + value.substring(2, 4);
-                }
-                e.target.value = value;
-            });
-        }
-
-        // Only numbers for CVV
-        const cvvInput = document.querySelector('input[name="card_cvv"]');
-        if (cvvInput) {
-            cvvInput.addEventListener('input', function (e) {
-                e.target.value = e.target.value.replace(/\D/g, '');
-            });
-        }
-
-        // Only numbers for InstaPay
-        const instaPayInput = document.querySelector('input[name="instapay_number"]');
-        if (instaPayInput) {
-            instaPayInput.addEventListener('input', function (e) {
-                e.target.value = e.target.value.replace(/\D/g, '');
-            });
+        if (typeof setupLazyImageLoading === 'function') {
+            setupLazyImageLoading();
         }
 
         // Only numbers for phone
@@ -486,5 +747,12 @@
             });
         }
     });
+
+    // Export functions for external use
+    window.actionSportsOrders = {
+        getCartIdSafe,
+        submitOrder,
+        buildOrderPayload
+    };
 
 })();

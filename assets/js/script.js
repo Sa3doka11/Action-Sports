@@ -15,8 +15,23 @@ const USER_ENDPOINTS = {
     me: `${API_BASE_HOST}/users/me`,
     changePassword: `${API_BASE_HOST}/users/me/change-password`,
     updateAccount: `${API_BASE_HOST}/users/me/update-account`,
-    deactivateAccount: `${API_BASE_HOST}/users/me/deactivate-account`
+    deactivateAccount: `${API_BASE_HOST}/users/me/deactivate-account`,
+    addresses: `${API_BASE_HOST}/users/me/addresses`,
+    addressById: (id) => `${API_BASE_HOST}/users/me/addresses/${id}`
 };
+
+const ORDER_ENDPOINTS = {
+    create: (cartId) => `${API_BASE_HOST}/orders${cartId ? `/${cartId}` : ''}`,
+    getAll: () => `${API_BASE_HOST}/orders`,
+    getById: (id) => `${API_BASE_HOST}/orders/${id}`,
+    getMyOrders: () => `${API_BASE_HOST}/orders/me`,
+    deliver: (id) => `${API_BASE_HOST}/orders/${id}/deliver`,
+    cancel: (id) => `${API_BASE_HOST}/orders/${id}/cancel`
+};
+
+if (typeof window !== 'undefined') {
+    window.ORDER_ENDPOINTS = ORDER_ENDPOINTS;
+}
 
 const CART_ENDPOINTS = {
     base: `${API_BASE_HOST}/cart`,
@@ -184,6 +199,7 @@ const passwordRecoveryState = {
 };
 
 const cartState = {
+    id: null,
     items: [],
     totals: {
         subtotal: 0,
@@ -281,6 +297,7 @@ function resetCartState({ suppressEvent = false } = {}) {
     cartState.totals = computeCartTotals([]);
     cartState.isLoaded = false;
     cartState.error = null;
+    cartState.id = null;
     updateCartIndicators();
     if (!suppressEvent) {
         notifyCartUpdated();
@@ -295,6 +312,7 @@ function applyCartSnapshot(snapshot = {}, { suppressEvent = false } = {}) {
     cartState.totals = totals;
     cartState.isLoaded = true;
     cartState.error = null;
+    cartState.id = snapshot?.id ?? snapshot?.cartId ?? null;
 
     updateCartIndicators();
     if (!suppressEvent) {
@@ -368,7 +386,8 @@ function normalizeCartSnapshot(payload) {
             price,
             name,
             image: resolvedImage,
-            raw: item
+            raw: item,
+            total: Number((Number.isFinite(price) ? price : 0) * quantity)
         };
 
         if (productId) {
@@ -388,7 +407,9 @@ function normalizeCartSnapshot(payload) {
         shipping: cartData?.shipping ?? cartData?.shippingCost ?? payload?.shipping
     });
 
-    return { items, totals };
+    const cartId = cartData?._id || cartData?.id || dataRoot?.cartId || dataRoot?.id || payload?.cartId || null;
+
+    return { items, totals, id: cartId };
 }
 
 async function refreshCartState(force = false) {
@@ -414,6 +435,21 @@ async function refreshCartState(force = false) {
         const snapshot = normalizeCartSnapshot(response);
         applyCartSnapshot(snapshot);
     } catch (error) {
+        const message = String(error?.message || '').toLowerCase();
+        const isEmptyCart =
+            error?.status === 404 ||
+            message.includes('cart is empty') ||
+            message.includes("didn't add any item") ||
+            message.includes('no items in cart');
+
+        if (isEmptyCart) {
+            console.info('ℹ️ Cart API indicates empty cart. Resetting state.');
+            resetCartState({ suppressEvent: false });
+            cartState.error = null;
+            cartState.isLoaded = true;
+            return cartState;
+        }
+
         console.error('❌ Failed to fetch cart:', error);
         cartState.error = error;
         if (error.status === 401) {
@@ -538,7 +574,7 @@ async function postJson(url, data, token) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            ...(token ? { 'Authorization': `Bearer ${token}`, token } : {})
         },
         body: JSON.stringify(data)
     });
@@ -562,7 +598,7 @@ async function patchJson(url, data, token) {
         method: 'PATCH',
         headers: {
             'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            ...(token ? { 'Authorization': `Bearer ${token}`, token } : {})
         },
         body: JSON.stringify(data)
     });
@@ -584,9 +620,10 @@ async function patchJson(url, data, token) {
 async function getJson(url, token) {
     const response = await fetch(url, {
         method: 'GET',
-        headers: {
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        }
+        headers: token ? {
+            'Authorization': `Bearer ${token}`,
+            token
+        } : {}
     });
 
     const payload = await response.json().catch(() => ({}));
@@ -606,9 +643,10 @@ async function getJson(url, token) {
 async function deleteJson(url, token) {
     const response = await fetch(url, {
         method: 'DELETE',
-        headers: {
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        }
+        headers: token ? {
+            'Authorization': `Bearer ${token}`,
+            token
+        } : {}
     });
 
     const payload = await response.json().catch(() => ({}));
