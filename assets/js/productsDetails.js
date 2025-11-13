@@ -12,6 +12,79 @@
 
     const API_BASE_URL = 'https://action-sports-api.vercel.app/api';
     const FALLBACK_IMAGE = 'assets/images/product1.png';
+    const IMAGE_VALUE_KEYS = [
+        'image', 'imageCover', 'image_cover', 'imageUrl', 'image_url', 'imageURL',
+        'defaultImage', 'default_image', 'primaryImage', 'mainImage', 'thumbnail',
+        'thumb', 'thumbUrl', 'cover', 'media', 'photo', 'picture', 'previewImage',
+        'preview', 'gallery', 'productImage', 'images', 'assets'
+    ];
+    const IMAGE_OBJECT_KEYS = ['secure_url', 'url', 'src', 'path', 'href', 'image', 'imageUrl'];
+
+    function normalizeImageUrl(url) {
+        if (!url) return '';
+        if (typeof url === 'string') {
+            const trimmed = url.trim();
+            if (!trimmed) return '';
+            if (typeof ensureAbsoluteUrl === 'function') {
+                return ensureAbsoluteUrl(trimmed) || trimmed;
+            }
+            return trimmed;
+        }
+        return '';
+    }
+
+    function collectProductImages(rawProduct = {}) {
+        const urls = [];
+        const seen = new Set();
+
+        const pushUrl = (value) => {
+            if (!value) return;
+
+            if (Array.isArray(value)) {
+                value.forEach(item => pushUrl(item));
+                return;
+            }
+
+            if (typeof value === 'string') {
+                const normalized = normalizeImageUrl(value);
+                if (normalized && !seen.has(normalized)) {
+                    seen.add(normalized);
+                    urls.push(normalized);
+                }
+                return;
+            }
+
+            if (typeof value === 'object') {
+                IMAGE_OBJECT_KEYS.forEach(key => {
+                    if (value && typeof value[key] === 'string') {
+                        pushUrl(value[key]);
+                    }
+                });
+            }
+        };
+
+        IMAGE_VALUE_KEYS.forEach(key => {
+            if (Object.prototype.hasOwnProperty.call(rawProduct, key)) {
+                pushUrl(rawProduct[key]);
+            }
+        });
+
+        if (Array.isArray(rawProduct.images)) {
+            rawProduct.images.forEach(img => pushUrl(img));
+        }
+
+        const resolver = (typeof window !== 'undefined' && typeof window.resolveProductImage === 'function')
+            ? window.resolveProductImage
+            : null;
+        const primary = resolver ? resolver(rawProduct) : normalizeImageUrl(rawProduct.image) || FALLBACK_IMAGE;
+        pushUrl(primary);
+
+        if (!urls.length) {
+            urls.push(FALLBACK_IMAGE);
+        }
+
+        return urls;
+    }
     let currentProduct = null;
 
     function getCartStateSafe() {
@@ -226,9 +299,44 @@
         const deliveryInfo = document.getElementById('deliveryInfo');
         const warrantyInfo = document.getElementById('warrantyInfo');
 
+        const galleryContainer = document.getElementById('productGallery');
+        const productImages = Array.isArray(product.images) && product.images.length
+            ? product.images
+            : [product.image || FALLBACK_IMAGE];
+        const primaryImage = productImages[0] || FALLBACK_IMAGE;
+
         if (productImg) {
-            productImg.src = product.image || FALLBACK_IMAGE;
+            productImg.src = primaryImage;
             productImg.alt = product.name;
+            productImg.dataset.activeIndex = '0';
+        }
+
+        if (galleryContainer) {
+            galleryContainer.innerHTML = '';
+            if (productImages.length > 1) {
+                galleryContainer.style.display = 'flex';
+            } else {
+                galleryContainer.style.display = 'none';
+            }
+
+            productImages.forEach((src, index) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'product-thumbnail';
+                if (index === 0) {
+                    button.classList.add('active');
+                }
+                button.innerHTML = `<img src="${src}" alt="${product.name} - صورة ${index + 1}">`;
+                button.addEventListener('click', () => {
+                    if (productImg) {
+                        productImg.src = src;
+                        productImg.dataset.activeIndex = String(index);
+                    }
+                    galleryContainer.querySelectorAll('.product-thumbnail').forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                });
+                galleryContainer.appendChild(button);
+            });
         }
 
         if (productName) productName.textContent = product.name;
@@ -309,9 +417,8 @@
             : Number(rawPrice);
         const price = Number.isFinite(sanitizedPrice) ? sanitizedPrice : 0;
 
-        const imageUrl = (typeof window !== 'undefined' && typeof window.resolveProductImage === 'function')
-            ? window.resolveProductImage(rawProduct)
-            : (rawProduct.image || FALLBACK_IMAGE);
+        const images = collectProductImages(rawProduct);
+        const imageUrl = images[0] || FALLBACK_IMAGE;
 
         const description = extractPrimaryDescription(rawProduct);
 
@@ -367,6 +474,7 @@
             categoryName: category?.name || rawProduct.categoryName || 'فئة غير محددة',
             price,
             image: imageUrl,
+            images,
             description,
             features,
             specs,

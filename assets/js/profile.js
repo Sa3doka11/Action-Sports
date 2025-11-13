@@ -7,7 +7,7 @@ function showCustomAlert(message, type = 'info') {
     return new Promise((resolve) => {
         const overlay = document.createElement('div');
         overlay.className = 'custom-alert-overlay';
-        
+
         overlay.innerHTML = `
             <div class="custom-alert">
                 <div class="custom-alert-header">
@@ -19,19 +19,19 @@ function showCustomAlert(message, type = 'info') {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(overlay);
         setTimeout(() => overlay.classList.add('show'), 10);
-        
-        overlay.querySelector('.custom-alert-btn').onclick = function() {
+
+        overlay.querySelector('.custom-alert-btn').onclick = function () {
             overlay.classList.remove('show');
             setTimeout(() => {
                 document.body.removeChild(overlay);
                 resolve(true);
             }, 300);
         };
-        
-        overlay.onclick = function(e) {
+
+        overlay.onclick = function (e) {
             if (e.target === overlay) {
                 overlay.classList.remove('show');
                 setTimeout(() => {
@@ -41,6 +41,52 @@ function showCustomAlert(message, type = 'info') {
             }
         };
     });
+}
+
+function buildShippingAddressDisplay(shipping, order, recipientName = '') {
+    const addressObject = shipping && typeof shipping === 'object' ? shipping : {};
+    const lines = [];
+
+    const detailCandidates = [
+        addressObject.details,
+        addressObject.addressLine1,
+        addressObject.address,
+        addressObject.line1,
+        addressObject.street,
+        addressObject.addressLine,
+        order?.shippingAddress?.details,
+        order?.shippingAddress?.addressLine1,
+        order?.shippingAddress?.address,
+        order?.shippingAddress?.line1
+    ];
+    const detail = detailCandidates.find(value => value && String(value).trim());
+    if (detail) lines.push(String(detail).trim());
+
+    const city = addressObject.city || order?.shippingCity;
+    const region = addressObject.region || addressObject.state || order?.shippingRegion || order?.shippingState;
+    const cityRegion = [city, region]
+        .filter(value => value && String(value).trim())
+        .map(value => String(value).trim())
+        .join('، ');
+    if (cityRegion) lines.push(cityRegion);
+
+    const postal = addressObject.postalCode || addressObject.zip || order?.shippingPostalCode || order?.postalCode;
+    if (postal) {
+        lines.push(`الرمز البريدي: ${postal}`);
+    }
+
+    const phone = addressObject.phone || order?.customerPhone || order?.userPhone;
+    if (phone) {
+        lines.push(`الهاتف: ${phone}`);
+    }
+
+    const typeLabel = translateAddressType(addressObject.type || order?.shippingAddress?.type || '');
+
+    return {
+        recipient: recipientName,
+        typeLabel: typeLabel && typeLabel !== '—' ? typeLabel : '',
+        lines
+    };
 }
 
 function translateAddressType(type) {
@@ -403,7 +449,7 @@ function showChangePasswordModal() {
                     <input type="password" name="confirmPassword" required>
                 </div>
                 <div class="modal-actions">
-                    <button type="submit" class="action-btn primary"><i class="fa fa-save"></i> حفظ</button>
+                    <button type="submit" class="action-btn primary">حفظ</button>
                     <button type="button" class="action-btn secondary modal-close">إلغاء</button>
                 </div>
             </form>
@@ -904,6 +950,7 @@ function renderOrderDetails(order) {
     const shipping = order.shippingAddress || {};
     const customer = order.customer || order.user || order.client || null;
     const recipientName = renderShippingRecipient(shipping, customer, order);
+    const shippingDisplay = buildShippingAddressDisplay(shipping, order, recipientName);
 
     const formatPrice = (value) => {
         const number = Number(value) || 0;
@@ -982,21 +1029,22 @@ function renderOrderDetails(order) {
 
     return `
         <section class="order-details-section">
-            <div class="order-details-meta">
+            <div class="order-details-card order-details-meta">
                 <div><strong>رقم الطلب:</strong> ${order.displayId || order.shortId || order._id || '-'}</div>
                 <div><strong>اسم العميل:</strong> ${renderCustomerName(customer, order, shipping)}</div>
                 <div><strong>التاريخ:</strong> ${formatOrderDate(order.createdAt || order.orderDate)}</div>
                 <div><strong>الحالة:</strong> ${renderStatusBadge(order)}</div>
                 <div><strong>طريقة الدفع:</strong> ${renderPaymentMethod(order.paymentMethod)}</div>
             </div>
-            <div class="order-details-shipping">
+            <div class="order-details-card order-details-shipping">
                 <h4>عنوان الشحن</h4>
-                <p>المدينة: ${shipping.city || '—'}</p>
-                <p>${shipping.details || '—'}</p>
-                <p>الرمز البريدي: ${shipping.postalCode || '—'}</p>
-                <p>الهاتف: ${shipping.phone || '—'}</p>
+                <div class="shipping-address-block">
+                    ${shippingDisplay.recipient ? `<div class="shipping-line recipient">${shippingDisplay.recipient}</div>` : ''}
+                    ${shippingDisplay.typeLabel ? `<span class="shipping-address-pill">${shippingDisplay.typeLabel}</span>` : ''}
+                    ${shippingDisplay.lines.length ? shippingDisplay.lines.map(line => `<div class="shipping-line">${line}</div>`).join('') : '<div class="shipping-line">—</div>'}
+                </div>
             </div>
-            <div class="order-details-items">
+            <div class="order-details-card order-details-items">
                 <h4>المنتجات</h4>
                 <table>
                     <thead>
@@ -1012,13 +1060,13 @@ function renderOrderDetails(order) {
                     </tbody>
                 </table>
             </div>
-            <div class="order-details-summary">
+            <div class="order-details-card order-details-summary">
                 <div><span>قيمة المنتجات:</span><span>${formatPrice(subtotal)}</span></div>
                 <div><span>مصاريف الشحن:</span><span>${formatPrice(shippingPrice)}</span></div>
                 ${taxPrice ? `<div><span>الضريبة:</span><span>${formatPrice(taxPrice)}</span></div>` : ''}
                 <div class="order-details-total"><span>الإجمالي:</span><span>${formatPrice(finalTotal)}</span></div>
             </div>
-            ${order.notes ? `<div class="order-details-notes"><strong>ملاحظات:</strong> ${order.notes}</div>` : ''}
+            ${order.notes ? `<div class="order-details-card order-details-notes"><strong>ملاحظات:</strong> ${order.notes}</div>` : ''}
         </section>
     `;
 }
@@ -1147,9 +1195,75 @@ function formatOrderDate(dateString) {
     }
 }
 
+function updateOrderStatsDisplay(orderCount = 0, itemsCount = 0) {
+    const ordersEl = document.getElementById('ordersCount');
+    if (ordersEl) {
+        const safeCount = Number(orderCount) || 0;
+        ordersEl.textContent = safeCount.toLocaleString('ar-EG');
+    }
+
+    const itemsEl = document.getElementById('itemsPurchasedCount');
+    if (itemsEl) {
+        const safeItems = Number(itemsCount) || 0;
+        itemsEl.textContent = safeItems.toLocaleString('ar-EG');
+    }
+}
+
+function extractOrderItems(order) {
+    if (!order || typeof order !== 'object') return [];
+
+    const candidates = [
+        order.cartItems,
+        order.items,
+        order.products,
+        order.orderItems,
+        order.orderProducts,
+        order.details?.items,
+        order.cart?.items
+    ];
+
+    for (const candidate of candidates) {
+        if (!candidate) continue;
+        if (Array.isArray(candidate)) {
+            if (candidate.length) return candidate;
+            continue;
+        }
+        if (typeof candidate === 'object') {
+            const values = Object.values(candidate);
+            if (values.length) return values;
+        }
+    }
+
+    return [];
+}
+
+function resolveOrderItemQuantity(item) {
+    if (!item || typeof item !== 'object') return 0;
+
+    const quantityCandidates = [
+        item.quantity,
+        item.qty,
+        item.count,
+        item.amount,
+        item.totalQuantity,
+        item.productQuantity
+    ];
+
+    for (const candidate of quantityCandidates) {
+        const value = Number(candidate);
+        if (!Number.isNaN(value) && value > 0) {
+            return value;
+        }
+    }
+
+    return 1;
+}
+
 async function loadUserOrders() {
     const tableBody = document.getElementById('ordersTableBody');
     if (!tableBody) return;
+
+    updateOrderStatsDisplay(0, 0);
 
     tableBody.innerHTML = `
         <tr class="orders-loading-row">
@@ -1195,13 +1309,24 @@ async function loadUserOrders() {
 
         if (!orders.length) {
             tableBody.innerHTML = renderOrdersEmptyState('لم تقم بأي طلبات بعد.');
+            updateOrderStatsDisplay(0, 0);
             return;
         }
 
-        tableBody.innerHTML = orders.map(renderOrderRow).join('');
+        const totalItemsPurchased = orders.reduce((sum, order) => {
+            const items = extractOrderItems(order);
+            if (!items.length) return sum;
+            const orderItemsCount = items.reduce((itemSum, item) => itemSum + resolveOrderItemQuantity(item), 0);
+            return sum + orderItemsCount;
+        }, 0);
+
+        updateOrderStatsDisplay(orders.length, totalItemsPurchased);
+
+        tableBody.innerHTML = orders.map((order, index) => renderOrderRow(order, index)).join('');
     } catch (error) {
         console.error('❌ Failed to load orders:', error);
         tableBody.innerHTML = renderOrdersEmptyState('حدث خطأ أثناء تحميل الطلبات. يرجى المحاولة لاحقاً.');
+        updateOrderStatsDisplay(0, 0);
     }
 }
 
@@ -1213,17 +1338,17 @@ function renderOrdersEmptyState(message) {
     `;
 }
 
-function renderOrderRow(order) {
-    const id = order.shortId || order.displayId || order._id || '—';
+function renderOrderRow(order, index = 0) {
     const createdAt = formatOrderDate(order.createdAt || order.orderDate);
     const total = Number(order.totalOrderPrice || order.total || 0).toLocaleString('ar-EG');
     const statusBadge = renderStatusBadge(order);
     const currencyIcon = '<img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;">';
     const canCancel = !order.isCanceled && !order.isDelivered;
+    const orderNumber = index + 1;
 
     return `
         <tr data-order-id="${order._id || order.id || ''}">
-            <td>#${id}</td>
+            <td>${orderNumber}</td>
             <td>${createdAt}</td>
             <td>${total} ${currencyIcon}</td>
             <td>${statusBadge}</td>

@@ -1,3 +1,61 @@
+    initContactForm();
+function getContactFormElement() {
+    if (typeof document === 'undefined') return null;
+    return document.getElementById('contact');
+}
+
+function handleContactFormSubmit(event) {
+    event.preventDefault();
+
+    const form = event.currentTarget;
+    if (!form) return;
+
+    const submitButton = form.querySelector('#form-submit');
+    const originalButtonText = submitButton ? submitButton.innerHTML : '';
+
+    const formData = new FormData(form);
+    const payload = {
+        name: (formData.get('name') || '').trim(),
+        email: (formData.get('email') || '').trim(),
+        topic: (formData.get('subject') || '').trim(),
+        message: (formData.get('message') || '').trim()
+    };
+
+    if (!payload.name || !payload.email || !payload.message) {
+        showToast('يرجى ملء الاسم والبريد الإلكتروني والرسالة.', 'warning');
+        return;
+    }
+
+    if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جارٍ الإرسال...';
+    }
+
+    postJson(CONTACT_FORM_ENDPOINT, payload)
+        .then(() => {
+            showToast('تم إرسال رسالتك بنجاح. سنعاود التواصل قريباً.', 'success');
+            form.reset();
+        })
+        .catch((error) => {
+            console.error('❌ Failed to send contact message:', error);
+            const message = error?.message || 'تعذر إرسال الرسالة. حاول مرة أخرى.';
+            showToast(message, 'error');
+        })
+        .finally(() => {
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.innerHTML = originalButtonText;
+            }
+        });
+}
+
+function initContactForm() {
+    const form = getContactFormElement();
+    if (!form) return;
+
+    form.addEventListener('submit', handleContactFormSubmit);
+}
+
 const API_BASE_URL = 'https://action-sports-api.vercel.app/api';
 const API_BASE_HOST = API_BASE_URL;
 const AUTH_STORAGE_KEY = 'actionSportsAuthToken';
@@ -10,6 +68,8 @@ const AUTH_ENDPOINTS = {
     verifyResetCode: `${API_BASE_HOST}/auth/verify-reset-code`,
     resetPassword: `${API_BASE_HOST}/auth/reset-password`
 };
+
+const CONTACT_FORM_ENDPOINT = `${API_BASE_HOST}/messages`;
 
 const USER_ENDPOINTS = {
     me: `${API_BASE_HOST}/users/me`,
@@ -1725,8 +1785,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const createItem = (category) => {
             const categoryId = category._id || category.id || category.slug || '';
             const categorySlug = category.slug || categoryId;
-            const targetQuery = categorySlug ? `?category=${encodeURIComponent(categorySlug)}` : '';
-            const targetUrl = `products.html${targetQuery}`;
+
+            const params = new URLSearchParams();
+            if (categorySlug) params.set('category', categorySlug);
+            if (categoryId) params.set('categoryId', categoryId);
+            const targetUrl = `products.html${params.toString() ? `?${params.toString()}` : ''}`;
             const categoryImage = resolveCategoryImage(category);
 
             return `

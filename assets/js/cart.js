@@ -10,6 +10,8 @@
     const CASH_PAYMENT_METHOD = 'cash';
     const CURRENCY_ICON_HTML = '<img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;">';
 
+    const CHECKOUT_FALLBACK_ADDRESS_ID = 'checkout-fallback-address';
+
     const ORDER_ENDPOINTS = {
         create: (cartId) => `${API_BASE_HOST}/orders${cartId ? `/${cartId}` : ''}`,
         getAll: () => `${API_BASE_HOST}/orders`,
@@ -25,6 +27,123 @@
         }
         return new Map();
     })();
+
+    function translateAddressType(type) {
+        switch ((type || '').toLowerCase()) {
+            case 'home':
+                return 'منزل';
+            case 'work':
+                return 'عمل';
+            case 'other':
+                return 'آخر';
+            default:
+                return type || '—';
+        }
+    }
+
+    function redirectToProfileOrders() {
+        const targetUrl = 'profile.html#orders';
+        let hasNavigated = false;
+
+        const navigate = () => {
+            if (hasNavigated) return;
+            hasNavigated = true;
+            window.location.href = targetUrl;
+        };
+
+        try {
+            const successModal = document.getElementById('successModal');
+            if (successModal) {
+                successModal.style.display = 'flex';
+                setTimeout(navigate, 1800);
+                return;
+            }
+        } catch (error) {
+            console.warn('⚠️ Could not show success modal before redirecting:', error);
+        }
+
+        setTimeout(navigate, 1200);
+    }
+
+    function extractCheckoutPrimaryAddress(source) {
+        if (!source || typeof source !== 'object') return null;
+
+        const directAddress = source.address || source.shippingAddress;
+        const addressArray = Array.isArray(source.addresses) ? source.addresses : null;
+        let candidate = directAddress;
+
+        if (!candidate && addressArray && addressArray.length) {
+            candidate = addressArray.find(item => item?.isDefault) || addressArray[0];
+        }
+
+        if (!candidate) return null;
+
+        if (typeof candidate === 'string') {
+            return {
+                _id: CHECKOUT_FALLBACK_ADDRESS_ID,
+                type: 'home',
+                details: candidate,
+                city: source.city || '',
+                postalCode: source.postalCode || '',
+                phone: source.phone || ''
+            };
+        }
+
+        if (typeof candidate !== 'object') return null;
+
+        const details = candidate.details || candidate.line1 || candidate.street || candidate.address || '';
+        const city = candidate.city || source.city || '';
+        const postalCode = candidate.postalCode || candidate.zip || candidate.postcode || source.postalCode || '';
+        const phone = candidate.phone || source.phone || '';
+
+        if (!details && !city && !postalCode && !phone) {
+            return null;
+        }
+
+        return {
+            _id: candidate._id || candidate.id || CHECKOUT_FALLBACK_ADDRESS_ID,
+            type: candidate.type || 'home',
+            details,
+            city,
+            postalCode,
+            phone
+        };
+    }
+
+    function normalizeCheckoutAddress(address) {
+        if (!address) return null;
+        return {
+            _id: address._id || address.id || CHECKOUT_FALLBACK_ADDRESS_ID,
+            id: address._id || address.id || CHECKOUT_FALLBACK_ADDRESS_ID,
+            type: address.type || 'home',
+            details: address.details || address.line1 || address.street || '',
+            city: address.city || '',
+            postalCode: address.postalCode || address.zip || '',
+            phone: address.phone || ''
+        };
+    }
+
+    function populateCheckoutAddressesFallbackFromUser(userData) {
+        const primary = extractCheckoutPrimaryAddress(userData);
+        if (!primary) return false;
+
+        const normalized = normalizeCheckoutAddress(primary);
+        if (!normalized) return false;
+
+        checkoutAddressesCache = [normalized];
+        checkoutAddressesLoaded = true;
+        selectedCheckoutAddressId = normalized._id || normalized.id || CHECKOUT_FALLBACK_ADDRESS_ID;
+        renderCheckoutAddresses(checkoutAddressesCache);
+        return true;
+    }
+
+    function populateCheckoutAddressesFallbackFromStoredUser() {
+        if (typeof getAuthUser !== 'function') return false;
+        const storedUser = getAuthUser();
+        if (!storedUser) return false;
+        const source = storedUser.raw || storedUser;
+        return populateCheckoutAddressesFallbackFromUser(source);
+    }
 
     function getCartStateSafe() {
         if (typeof cartState === 'object' && cartState) {
@@ -170,45 +289,34 @@
                         <i class="fa fa-credit-card"></i> تأكيد الطلب
                     </button>
 
-                    <div class="payment-form" id="paymentForm">
-                        <h3>معلومات الدفع والشحن</h3>
-                        <form id="orderForm">
-                            <div class="form-group">
-                                <label>الاسم الكامل *</label>
-                                <input type="text" name="fullname" required placeholder="أدخل اسمك الكامل">
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>رقم الهاتف *</label>
-                                    <input type="tel" name="phone" required placeholder="01234567890" pattern="[0-9]{11}">
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label>العنوان *</label>
-                                <textarea name="address" rows="3" required placeholder="أدخل عنوان الشحن بالتفصيل"></textarea>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>المدينة *</label>
-                                    <input type="text" name="city" required placeholder="القاهرة">
-                                </div>
-                                <div class="form-group">
-                                    <label>الرمز البريدي</label>
-                                    <input type="text" name="postal" placeholder="12345">
-                                </div>
-                            </div>
+                    <div class="address-selection" id="addressSelection">
+                        <div class="address-selection-header">
+                            <h3>اختر عنوان الشحن</h3>
+                            <p>حدد أحد العناوين المسجلة أو أضف عنواناً جديداً لإتمام الطلب.</p>
+                        </div>
+                        <div class="checkout-addresses" id="checkoutAddressList">
+                            <div class="addresses-loading"><i class="fa fa-spinner fa-spin"></i> جاري تحميل العناوين...</div>
+                        </div>
+                        <div class="addresses-empty" id="checkoutAddressesEmpty" style="display: none;">
+                            لا توجد عناوين محفوظة بعد. يرجى إضافة عنوان جديد للمتابعة.
+                        </div>
+                        <div class="address-selection-actions">
+                            <button type="button" class="action-btn primary" id="addCheckoutAddressBtn">
+                                <i class="fa fa-plus"></i> إضافة عنوان جديد
+                            </button>
+                        </div>
 
+                        <div class="checkout-payment" id="checkoutPaymentSection">
                             <div class="form-group">
-                                <label>طريقة الدفع *</label>
-                                <select name="payment_method" id="paymentMethod" required>
-                                    <option value="">اختر طريقة الدفع</option>
+                                <label for="checkoutPaymentMethod">طريقة الدفع *</label>
+                                <select name="payment_method" id="checkoutPaymentMethod" required>
                                     <option value="cash">الدفع عند الاستلام</option>
                                     <option value="installment">برنامج التقسيط</option>
                                     <option value="card">بطاقة ائتمان</option>
                                 </select>
                             </div>
 
-                            <div id="installmentProviders" class="payment-field" style="display: none;">
+                            <div id="checkoutInstallmentProviders" class="payment-field" style="display: none;">
                                 <div class="payment-info-alert">
                                     <i class="fa fa-hand-holding-usd"></i>
                                     <p>
@@ -217,7 +325,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label>مقدم خدمة التقسيط *</label>
-                                    <select name="installment_provider">
+                                    <select name="installment_provider" id="checkoutInstallmentProvider">
                                         <option value="">اختر البرنامج</option>
                                         <option value="tabby">Tabby</option>
                                         <option value="tamara">Tamara</option>
@@ -225,24 +333,20 @@
                                 </div>
                             </div>
 
-                            <div id="cashMessage" class="payment-field" style="display: none;">
-                                <div style="background: #e8f5e9; padding: 15px; border-radius: 8px; border-right: 4px solid #4caf50; margin-bottom: 20px;">
-                                    <i class="fa fa-check-circle" style="color: #4caf50; margin-left: 10px;"></i>
-                                    <strong>الدفع عند الاستلام</strong>
-                                    <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">
-                                        سيتم تحصيل قيمة الطلب عند استلام المنتج. يرجى تجهيز المبلغ المطلوب.
-                                    </p>
+                            <div id="checkoutCashMessage" class="payment-field" style="display: none;">
+                                <div class="cash-payment-info">
+                                    <i class="fa fa-check-circle"></i>
+                                    <div>
+                                        <strong>الدفع عند الاستلام</strong>
+                                        <p>سيتم تحصيل قيمة الطلب عند استلام المنتج. يرجى تجهيز المبلغ المطلوب.</p>
+                                    </div>
                                 </div>
                             </div>
+                        </div>
 
-                            <div class="form-group">
-                                <label>ملاحظات إضافية</label>
-                                <textarea name="notes" rows="2" placeholder="أي ملاحظات خاصة بالطلب"></textarea>
-                            </div>
-                            <button type="submit" class="submit-order-btn">
-                                <i class="fa fa-check"></i> تأكيد وإرسال الطلب
-                            </button>
-                        </form>
+                        <button class="submit-order-btn" id="confirmOrderButton" disabled>
+                            <i class="fa fa-check"></i> تأكيد وإرسال الطلب
+                        </button>
                     </div>
                 </div>
             </div>
@@ -252,9 +356,10 @@
     }
 
     function bindCartInteractions(container) {
-        const paymentForm = container.querySelector('#paymentForm');
-        const paymentMethod = container.querySelector('#paymentMethod');
         const checkoutButton = container.querySelector('#checkoutButton');
+        const confirmOrderButton = container.querySelector('#confirmOrderButton');
+        const addAddressButton = container.querySelector('#addCheckoutAddressBtn');
+        const paymentMethod = container.querySelector('#checkoutPaymentMethod');
 
         if (checkoutButton) {
             checkoutButton.addEventListener('click', function (event) {
@@ -264,13 +369,13 @@
                     }
                     return;
                 }
-                showPaymentForm(event);
+                showAddressSelection();
             });
         }
 
         if (paymentMethod) {
-            paymentMethod.addEventListener('change', handlePaymentMethodChange);
-            updateSummaryTotals(paymentMethod.value);
+            paymentMethod.addEventListener('change', handleCheckoutPaymentChange);
+            handleCheckoutPaymentChange();
         }
 
         container.querySelectorAll('.quantity-btn').forEach(button => {
@@ -281,9 +386,256 @@
             button.addEventListener('click', handleRemoveItem);
         });
 
-        if (paymentForm) {
-            paymentForm.addEventListener('submit', submitOrder);
+        if (confirmOrderButton) {
+            confirmOrderButton.addEventListener('click', submitOrderWithSelectedAddress);
         }
+
+        if (addAddressButton) {
+            addAddressButton.addEventListener('click', openCheckoutAddressModal);
+        }
+    }
+
+    let checkoutAddressesCache = [];
+    let checkoutAddressesLoaded = false;
+    let selectedCheckoutAddressId = null;
+
+    function showAddressSelection() {
+        const selection = document.getElementById('addressSelection');
+        const checkoutButton = document.getElementById('checkoutButton');
+        if (!selection) return;
+
+        selection.classList.add('show');
+        if (checkoutButton) {
+            checkoutButton.style.display = 'none';
+        }
+
+        if (!checkoutAddressesLoaded) {
+            loadCheckoutAddresses();
+        }
+    }
+
+    async function loadCheckoutAddresses(forceRefresh = false) {
+        if (checkoutAddressesLoaded && !forceRefresh) {
+            renderCheckoutAddresses(checkoutAddressesCache);
+            return;
+        }
+
+        const list = document.getElementById('checkoutAddressList');
+        const emptyState = document.getElementById('checkoutAddressesEmpty');
+        if (!list || !emptyState) return;
+
+        list.innerHTML = '<div class="addresses-loading"><i class="fa fa-spinner fa-spin"></i> جاري تحميل العناوين...</div>';
+        emptyState.style.display = 'none';
+
+        const token = getAuthTokenSafe();
+        if (!token) {
+            list.innerHTML = '';
+            emptyState.textContent = 'يرجى تسجيل الدخول لعرض عناوينك المسجلة.';
+            emptyState.style.display = 'block';
+            return;
+        }
+
+        try {
+            const response = await getJson(USER_ENDPOINTS.addresses, token);
+            const addresses = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+
+            checkoutAddressesCache = addresses;
+            checkoutAddressesLoaded = true;
+            renderCheckoutAddresses(addresses);
+        } catch (error) {
+            console.error('❌ Failed to load checkout addresses:', error);
+            const hydrated = populateCheckoutAddressesFallbackFromStoredUser();
+            if (!hydrated) {
+                list.innerHTML = '';
+                emptyState.textContent = error.message || 'حدث خطأ أثناء تحميل العناوين. يرجى المحاولة مرة أخرى.';
+                emptyState.style.display = 'block';
+            }
+        }
+    }
+
+    function renderCheckoutAddresses(addresses) {
+        const list = document.getElementById('checkoutAddressList');
+        const emptyState = document.getElementById('checkoutAddressesEmpty');
+        const confirmBtn = document.getElementById('confirmOrderButton');
+        if (!list || !emptyState) return;
+
+        if (!Array.isArray(addresses) || !addresses.length) {
+            const hydrated = populateCheckoutAddressesFallbackFromStoredUser();
+            if (!hydrated) {
+                list.innerHTML = '';
+                emptyState.style.display = 'block';
+                selectedCheckoutAddressId = null;
+                if (confirmBtn) confirmBtn.disabled = true;
+            }
+            return;
+        }
+
+        emptyState.style.display = 'none';
+
+        if (!selectedCheckoutAddressId) {
+            selectedCheckoutAddressId = addresses[0]?._id || addresses[0]?.id || null;
+        }
+
+        list.innerHTML = addresses.map(address => renderCheckoutAddressCard(address, isSameAddress(address, selectedCheckoutAddressId))).join('');
+
+        list.querySelectorAll('input[name="selectedAddress"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                selectedCheckoutAddressId = radio.value;
+                highlightSelectedAddress();
+            });
+        });
+
+        highlightSelectedAddress();
+        if (confirmBtn) confirmBtn.disabled = !selectedCheckoutAddressId;
+    }
+
+    function renderCheckoutAddressCard(address, selected) {
+        const id = address?._id || address?.id || '';
+        const typeLabel = translateAddressType(address?.type || 'home');
+        const details = address?.details || address?.line1 || address?.street || '—';
+        const city = address?.city || '—';
+        const postal = address?.postalCode || address?.zip || '—';
+        const phone = address?.phone || '—';
+
+        return `
+            <label class="checkout-address-card ${selected ? 'selected' : ''}" data-address-id="${id}">
+                <input type="radio" name="selectedAddress" value="${id}" ${selected ? 'checked' : ''}>
+                <div class="checkout-address-content">
+                    <div class="checkout-address-type">
+                        <span class="address-type-pill">${typeLabel}</span>
+                    </div>
+                    <div class="checkout-address-lines">
+                        <div class="address-line"><i class="fa fa-map-marker-alt"></i><span>${details}</span></div>
+                        <div class="address-line"><i class="fa fa-city"></i><span>${city}</span></div>
+                        <div class="address-line"><i class="fa fa-mail-bulk"></i><span>${postal}</span></div>
+                        <div class="address-line"><i class="fa fa-phone"></i><span>${phone}</span></div>
+                    </div>
+                </div>
+            </label>
+        `;
+    }
+
+    function isSameAddress(address, id) {
+        const addressId = address?._id || address?.id || '';
+        return addressId && id && String(addressId) === String(id);
+    }
+
+    function highlightSelectedAddress() {
+        const cards = document.querySelectorAll('.checkout-address-card');
+        const confirmBtn = document.getElementById('confirmOrderButton');
+        cards.forEach(card => {
+            const id = card.dataset.addressId;
+            if (id && String(id) === String(selectedCheckoutAddressId)) {
+                card.classList.add('selected');
+                const radio = card.querySelector('input[type="radio"]');
+                if (radio) radio.checked = true;
+            } else {
+                card.classList.remove('selected');
+            }
+        });
+
+        if (confirmBtn) {
+            confirmBtn.disabled = !selectedCheckoutAddressId;
+        }
+    }
+
+    function openCheckoutAddressModal() {
+        const modal = document.createElement('div');
+        modal.className = 'address-modal-overlay';
+        modal.innerHTML = `
+            <div class="address-modal">
+                <div class="address-modal-header">
+                    <h3>إضافة عنوان جديد</h3>
+                    <button type="button" class="address-modal-close" aria-label="إغلاق">&times;</button>
+                </div>
+                <form id="checkoutAddressForm">
+                    <div class="address-form-group">
+                        <label>نوع العنوان</label>
+                        <select name="type" required>
+                            <option value="home">المنزل</option>
+                            <option value="work">العمل</option>
+                            <option value="other">آخر</option>
+                        </select>
+                    </div>
+                    <div class="address-form-group">
+                        <label>تفاصيل العنوان</label>
+                        <textarea name="details" rows="3" required placeholder="مثل: الشارع، رقم المنزل، العلامات المميزة"></textarea>
+                    </div>
+                    <div class="address-form-group">
+                        <label>المدينة</label>
+                        <input type="text" name="city" required placeholder="القاهرة">
+                    </div>
+                    <div class="address-form-group">
+                        <label>الرمز البريدي</label>
+                        <input type="text" name="postalCode" placeholder="12345">
+                    </div>
+                    <div class="address-form-group">
+                        <label>رقم الهاتف</label>
+                        <input type="tel" name="phone" required placeholder="مثال: 01000000000">
+                    </div>
+                    <div class="address-modal-actions">
+                        <button type="submit" class="action-btn primary"><i class="fa fa-save"></i> حفظ العنوان</button>
+                        <button type="button" class="action-btn secondary address-modal-close">إلغاء</button>
+                    </div>
+                </form>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+        setTimeout(() => modal.classList.add('visible'), 10);
+
+        modal.addEventListener('click', (event) => {
+            if (event.target.classList.contains('address-modal-overlay') || event.target.classList.contains('address-modal-close')) {
+                closeCheckoutAddressModal(modal);
+            }
+        });
+
+        const form = modal.querySelector('#checkoutAddressForm');
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const formData = new FormData(form);
+            const payload = Object.fromEntries(Array.from(formData.entries()).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]));
+
+            if (!payload.details || !payload.city || !payload.phone) {
+                showToast('يرجى ملء كافة الحقول المطلوبة.', 'warning');
+                return;
+            }
+
+            try {
+                await saveCheckoutAddress(payload);
+                closeCheckoutAddressModal(modal);
+                await loadCheckoutAddresses(true);
+            } catch (error) {
+                console.error('❌ Failed to add checkout address:', error);
+                showToast(error.message || 'تعذر إضافة العنوان. حاول مرة أخرى.', 'error');
+            }
+        });
+    }
+
+    function closeCheckoutAddressModal(modal) {
+        if (!modal) return;
+        modal.classList.remove('visible');
+        setTimeout(() => modal.remove(), 200);
+    }
+
+    async function saveCheckoutAddress(payload) {
+        const token = getAuthTokenSafe();
+        if (!token) {
+            showToast('يجب تسجيل الدخول لإضافة عنوان.', 'warning');
+            return;
+        }
+
+        const body = {
+            type: payload.type || 'home',
+            details: payload.details,
+            city: payload.city,
+            postalCode: payload.postalCode || '',
+            phone: payload.phone,
+            token
+        };
+
+        await postJson(USER_ENDPOINTS.addresses, body, token);
+        showToast('تم إضافة العنوان بنجاح!', 'success');
     }
 
     function handleQuantityChange(event) {
@@ -320,17 +672,10 @@
             });
     }
 
-    function showPaymentForm() {
-        const form = document.getElementById('paymentForm');
-        if (form) {
-            form.classList.toggle('show');
-        }
-    }
-
-    function handlePaymentMethodChange() {
-        const paymentMethod = document.getElementById('paymentMethod');
-        const cashMessage = document.getElementById('cashMessage');
-        const installmentProviders = document.getElementById('installmentProviders');
+    function handleCheckoutPaymentChange() {
+        const paymentMethod = document.getElementById('checkoutPaymentMethod');
+        const cashMessage = document.getElementById('checkoutCashMessage');
+        const installmentProviders = document.getElementById('checkoutInstallmentProviders');
 
         if (!paymentMethod || !cashMessage || !installmentProviders) {
             return;
@@ -339,7 +684,7 @@
         cashMessage.style.display = 'none';
         installmentProviders.style.display = 'none';
 
-        const providerSelect = installmentProviders.querySelector('select');
+        const providerSelect = document.getElementById('checkoutInstallmentProvider');
         if (providerSelect) {
             providerSelect.removeAttribute('required');
             providerSelect.selectedIndex = 0;
@@ -365,10 +710,10 @@
                 break;
         }
 
-        updateSummaryTotals(paymentMethod.value);
+        updateSummaryTotals();
     }
 
-    function updateSummaryTotals(selectedMethod) {
+    function updateSummaryTotals() {
         const totalValue = document.getElementById('orderTotalValue');
 
         const state = getCartStateSafe();
@@ -403,36 +748,6 @@
         return null;
     }
 
-    function isCashPayment(formData) {
-        const selectedMethod = formData.get('payment_method');
-        if (selectedMethod === CASH_PAYMENT_METHOD) {
-            return true;
-        }
-
-        if (selectedMethod === 'installment') {
-            const provider = (formData.get('installment_provider') || '').trim();
-            if (!provider) {
-                showToast('يرجى اختيار مقدم خدمة التقسيط.', 'info');
-                return false;
-            }
-            return true;
-        }
-
-        showToast('سيتم تحويلك لصفحة الدفع بالبطاقة.', 'info');
-        return false;
-    }
-
-    function buildShippingAddress(formData) {
-        const addressEntries = {
-            details: (formData.get('address') || '').trim(),
-            phone: (formData.get('phone') || '').trim(),
-            city: (formData.get('city') || '').trim(),
-            postalCode: (formData.get('postal') || '').trim()
-        };
-
-        return Object.fromEntries(Object.entries(addressEntries).filter(([, value]) => Boolean(value)));
-    }
-
     function getCartIdSafe() {
         const state = getCartStateSafe();
 
@@ -458,11 +773,11 @@
         return null;
     }
 
-    function buildOrderPayload(formData, state, user) {
+    function buildOrderPayload(selectedAddress, selectedPaymentMethod, state, user, installmentProvider) {
         const subtotal = Number(state.totals?.subtotal) || 0;
 
         const payload = {
-            paymentMethod: formData.get('payment_method') || CASH_PAYMENT_METHOD,
+            paymentMethod: selectedPaymentMethod || CASH_PAYMENT_METHOD,
             shippingPrice: SHIPPING_FEE,
             taxPrice: 0,
             totalOrderPrice: subtotal + SHIPPING_FEE,
@@ -483,7 +798,7 @@
         }
 
         // Customer name
-        const customerName = (formData.get('fullname') || user?.name || '').trim();
+        const customerName = (user?.name || '').trim();
         payload.customerName = customerName || 'عميل';
 
         // Customer email/account
@@ -491,22 +806,26 @@
             payload.customerAccount = user.email;
         }
 
-        // Notes
-        const notes = (formData.get('notes') || '').trim();
-        if (notes) {
-            payload.notes = notes;
-        }
-
         // Shipping address
-        const shippingAddress = buildShippingAddress(formData);
-        if (Object.keys(shippingAddress).length) {
-            payload.shippingAddress = shippingAddress;
+        if (selectedAddress) {
+            const addressDetails = selectedAddress.details || selectedAddress.line1 || selectedAddress.street || selectedAddress.address || '';
+            payload.shippingAddress = {
+                addressId: selectedAddress._id || selectedAddress.id || undefined,
+                type: selectedAddress.type || 'home',
+                details: addressDetails,
+                addressLine1: addressDetails,
+                address: addressDetails,
+                line1: addressDetails,
+                city: selectedAddress.city || '',
+                region: selectedAddress.region || selectedAddress.state || '',
+                postalCode: selectedAddress.postalCode || selectedAddress.zip || '',
+                phone: selectedAddress.phone || user?.phone || '',
+                recipientName: payload.customerName,
+                name: payload.customerName
+            };
         }
 
-        const paymentMethod = payload.paymentMethod;
-        const installmentProvider = (formData.get('installment_provider') || '').trim();
-
-        if (paymentMethod === 'installment' && installmentProvider) {
+        if (payload.paymentMethod === 'installment' && installmentProvider) {
             payload.paymentDetails = {
                 provider: installmentProvider
             };
@@ -577,30 +896,53 @@
         }
     }
 
-    async function submitOrder(event) {
+    async function submitOrderWithSelectedAddress(event) {
         event.preventDefault();
 
-        const form = event.target;
-        const submitBtn = form.querySelector('[type="submit"]');
-        const originalBtnContent = submitBtn ? submitBtn.innerHTML : '';
+        const confirmBtn = event.currentTarget;
+        const originalContent = confirmBtn.innerHTML;
 
-        const formData = new FormData(form);
+        if (!selectedCheckoutAddressId) {
+            showToast('يرجى اختيار عنوان الشحن أولاً.', 'info');
+            return;
+        }
+
+        const selectedAddress = checkoutAddressesCache.find(address => isSameAddress(address, selectedCheckoutAddressId));
+        if (!selectedAddress) {
+            showToast('لم يتم العثور على العنوان المحدد.', 'error');
+            return;
+        }
+
+        const paymentSelect = document.getElementById('checkoutPaymentMethod');
+        if (!paymentSelect) {
+            showToast('يرجى اختيار طريقة الدفع.', 'info');
+            return;
+        }
+
+        const selectedPaymentMethod = paymentSelect.value;
+        if (!selectedPaymentMethod) {
+            showToast('يرجى اختيار طريقة الدفع.', 'info');
+            return;
+        }
+
+        if (selectedPaymentMethod === 'card') {
+            window.location.href = 'card-payment.html';
+            return;
+        }
+
+        const installmentProviderSelect = document.getElementById('checkoutInstallmentProvider');
+        const installmentProvider = installmentProviderSelect ? (installmentProviderSelect.value || '').trim() : '';
+
+        if (selectedPaymentMethod === 'installment' && !installmentProvider) {
+            showToast('يرجى اختيار مقدم خدمة التقسيط.', 'info');
+            return;
+        }
+
         const token = ensureAuthenticated(event);
         if (!token) {
             return;
         }
 
-        const paymentMethod = formData.get('payment_method');
-        if (paymentMethod === 'card') {
-            window.location.href = 'card-payment.html';
-            return;
-        }
-
-        if (!isCashPayment(formData)) {
-            return;
-        }
-
-        // Ensure cart is loaded and fresh
         console.log('🔄 Refreshing cart state...');
         await ensureCartStateLoaded(true);
 
@@ -610,7 +952,6 @@
             return;
         }
 
-        // Validate cart ID
         const cartId = getCartIdSafe();
         if (!cartId) {
             showToast('خطأ في معرف السلة. يرجى تحديث الصفحة والمحاولة مرة أخرى.', 'error');
@@ -620,13 +961,6 @@
 
         const user = getCurrentUserSafe();
 
-        // Debug logs
-        console.log('👤 Current User:', user);
-        console.log('🛒 Cart ID:', cartId);
-        console.log('🛒 Full Cart State:', state);
-        console.log('🔑 Token:', token);
-
-        // Check if cart belongs to user (if userId is available in cart)
         if (state.userId && user?.id && state.userId !== user.id) {
             console.error('❌ Cart user mismatch!');
             console.error('Cart userId:', state.userId);
@@ -635,16 +969,15 @@
             return;
         }
 
-        const payload = buildOrderPayload(formData, state, user);
+        const payload = buildOrderPayload(selectedAddress, selectedPaymentMethod, state, user, installmentProvider);
 
-        toggleSubmitButton(submitBtn, true, originalBtnContent);
+        toggleSubmitButton(confirmBtn, true, originalContent);
 
         try {
             const orderResult = await postOrderRequest(payload, token, cartId);
 
             showToast('تم إنشاء الطلب بنجاح! سيتم التواصل معك قريباً.', 'success');
 
-            // Clear cart after successful order
             try {
                 if (typeof clearCartContents === 'function') {
                     await clearCartContents();
@@ -653,15 +986,14 @@
                 console.error('❌ Failed to clear cart after order:', clearError);
             }
 
-            // Keep user on the same page and show success modal if available
-            const successModal = document.getElementById('successModal');
-            if (successModal) {
-                successModal.style.display = 'flex';
+            try {
+                updateCartCount();
+                renderCart();
+            } catch (uiError) {
+                console.warn('⚠️ Failed to update cart UI after order:', uiError);
             }
 
-            renderCart();
-            updateCartCount();
-
+            redirectToProfileOrders();
         } catch (error) {
             console.error('❌ Order submission failed:', error);
 
@@ -681,7 +1013,7 @@
 
             showToast(errorMessage, 'error');
         } finally {
-            toggleSubmitButton(submitBtn, false, originalBtnContent);
+            toggleSubmitButton(confirmBtn, false, originalContent);
         }
     }
 

@@ -139,85 +139,85 @@
     <!-- ***** Profile Section Start ***** -->
     <section class="profile-section">
         <div class="profile-container">
-            <!-- Profile top row -->
-            <div class="profile-top-grid">
-                <div class="profile-header">
-                    <div class="profile-header-content">
+            <div class="profile-layout">
+                <div class="profile-summary">
+                    <div class="profile-header">
+                        <div class="profile-header-content">
 
-                        <!-- Info -->
-                        <div class="profile-info">
-                            <h1 class="profile-name" id="userName">الملك سلمان بن عبد العزيز   <span class="verified-badge"><i class="fa fa-check"></i></span></h1>
-                            <p class="profile-email"><i class="fa fa-envelope"></i> <span id="userEmail">user@gmail.com</span></p>
-                            <div class="profile-stats">
-                                <div class="stat-item">
-                                    <div class="stat-number">8</div>
-                                    <div class="stat-label">الطلبات</div>
-                                </div>
-                                <div class="stat-item">
-                                    <div class="stat-number">15</div>
-                                    <div class="stat-label">اجمالي المشتريات </div>
-                                </div>
+                            <!-- Info -->
+                            <div class="profile-info">
+                                <h1 class="profile-name" id="userName">الملك سلمان بن عبد العزيز   <span class="verified-badge"><i class="fa fa-check"></i></span></h1>
+                                <p class="profile-email"><i class="fa fa-envelope"></i> <span id="userEmail">user@gmail.com</span></p>
+                                <div class="profile-stats">
+                                    <div class="stat-item">
+                                        <div class="stat-number" id="ordersCount">0</div>
+                                        <div class="stat-label">الطلبات</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-number" id="itemsPurchasedCount">0</div>
+                                        <div class="stat-label">اجمالي المنتحات </div>
+                                    </div>
 
+                                </div>
+                                <div class="profile-actions">
+                                    <button class="action-btn primary" onclick="editProfile()">
+                                        <i class="fa fa-edit"></i> تعديل الملف
+                                    </button>
+                                    <button class="action-btn secondary" onclick="logout()">
+                                        <i class="fa fa-sign-out-alt"></i> تسجيل الخروج
+                                    </button>
+                                </div>
                             </div>
-                            <div class="profile-actions">
-                                <button class="action-btn primary" onclick="editProfile()">
-                                    <i class="fa fa-edit"></i> تعديل الملف
-                                </button>
-                                <button class="action-btn secondary" onclick="logout()">
-                                    <i class="fa fa-sign-out-alt"></i> تسجيل الخروج
-                                </button>
+                        </div>
+                    </div>
+
+                    <!-- Addresses -->
+                    <div class="info-card addresses-card" id="addressesCard">
+                        <div class="card-header">
+                            <div class="card-icon"><i class="fa fa-map-marker-alt"></i></div>
+                            <h2 class="card-title">عناوين الشحن</h2>
+                        </div>
+                        <div class="addresses-content">
+                            <div id="addressesEmptyState" class="addresses-empty" style="display: none;">
+                                لا توجد عناوين محفوظة بعد.
                             </div>
+                            <div id="addressesList" class="addresses-list"></div>
+                            <button class="action-btn primary" id="addAddressBtn">
+                                <i class="fa fa-plus"></i> إضافة عنوان جديد
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Addresses -->
-                <div class="info-card addresses-card" id="addressesCard">
-                    <div class="card-header">
-                        <div class="card-icon"><i class="fa fa-map-marker-alt"></i></div>
-                        <h2 class="card-title">عناوين الشحن</h2>
-                    </div>
-                    <div class="addresses-content">
-                        <div id="addressesEmptyState" class="addresses-empty" style="display: none;">
-                            لا توجد عناوين محفوظة بعد.
-                        </div>
-                        <div id="addressesList" class="addresses-list"></div>
-                        <button class="action-btn primary" id="addAddressBtn">
-                            <i class="fa fa-plus"></i> إضافة عنوان جديد
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Content Grid -->
-            <div class="profile-grid">
                 <!-- Orders -->
-                <div class="info-card orders-card">
-                    <div class="card-header">
-                        <div class="card-icon"><i class="fa fa-shopping-bag"></i></div>
-                        <h2 class="card-title">الطلبات السابقة</h2>
-                    </div>
-                    <table class="orders-table">
-                        <thead>
-                            <tr>
-                                <th>رقم الطلب</th>
-                                <th>التاريخ</th>
+                <div class="profile-orders">
+                    <div class="info-card orders-card">
+                        <div class="card-header">
+                            <div class="card-icon"><i class="fa fa-shopping-bag"></i></div>
+                            <h2 class="card-title">الطلبات السابقة</h2>
+                        </div>
+                        <table class="orders-table">
+                            <thead>
+                                <tr>
+                                    <th>التسلسل</th>
+                                    <th>التاريخ</th>
                                 <th>الإجمالي</th>
                                 <th>الحالة</th>
                                 <th>الإجراءات</th>
-                            </tr>
-                        </thead>
-                        <tbody id="ordersTableBody">
-                            <tr class="orders-loading-row">
-                                <td colspan="5">
-                                    <div class="orders-loading">
-                                        <i class="fa fa-spinner fa-spin"></i>
-                                        <span>جاري تحميل الطلبات...</span>
-                                    </div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                                </tr>
+                            </thead>
+                            <tbody id="ordersTableBody">
+                                <tr class="orders-loading-row">
+                                    <td colspan="5">
+                                        <div class="orders-loading">
+                                            <i class="fa fa-spinner fa-spin"></i>
+                                            <span>جاري تحميل الطلبات...</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>

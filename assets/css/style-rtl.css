@@ -101,6 +101,28 @@
       border-radius: 6px;
     }
 
+    /* Font Awesome legacy support */
+    .fa,
+    .fas,
+    .fa-solid {
+      font-family: "Font Awesome 6 Free";
+      font-weight: 900;
+    }
+
+    .far,
+    .fa-regular,
+    .fa-light,
+    .fa-thin {
+      font-family: "Font Awesome 6 Free";
+      font-weight: 400;
+    }
+
+    .fab,
+    .fa-brands {
+      font-family: "Font Awesome 6 Brands";
+      font-weight: 400;
+    }
+
     html,
     body {
       font-family: "Cairo", sans-serif;
@@ -1347,14 +1369,17 @@
 
     [data-theme="dark"] .cart-items-list {
       background-color: var(--bg-white);
+      color: white;
     }
 
     [data-theme="dark"] .cart-item {
       border-bottom-color: var(--border-color);
     }
 
-    [data-theme="dark"] .cart-item-details h4 {
-      color: var(--text-color);
+    [data-theme="dark"] .cart-item-details h3,
+    [data-theme="dark"] .cart-item-details h4,
+    [data-theme="dark"] .cart-item-name {
+      color: #ffffff;
     }
 
     [data-theme="dark"] .cart-item-details p {

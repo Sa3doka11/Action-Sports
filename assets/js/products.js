@@ -13,6 +13,7 @@
     let categoriesFromApi = [];
     let categoryHierarchy = new Map();
     let currentCategory = 'all';
+    let currentCategoryId = 'all';
     let currentSubCategory = 'all';
     let searchQuery = '';
     let isFetchingProducts = false;
@@ -64,7 +65,11 @@
     =================================================================== */
     window.addEventListener('load', async function() {
         const urlParams = new URLSearchParams(window.location.search);
-        currentCategory = urlParams.get('category') || 'all';
+        const initialCategorySlug = urlParams.get('category');
+        const initialCategoryId = urlParams.get('categoryId');
+
+        currentCategory = initialCategorySlug || initialCategoryId || 'all';
+        currentCategoryId = initialCategoryId || initialCategorySlug || 'all';
         currentSubCategory = urlParams.get('subcategory') || 'all';
 
         setupEventListeners();
@@ -389,10 +394,15 @@
         const categoryId = button.dataset.category;
         if (categoryId === undefined) return;
 
-        currentCategory = categoryId;
+        const categorySlug = button.dataset.category;
+        const categoryUniqueId = button.dataset.categoryId;
+
+        currentCategory = categorySlug || categoryUniqueId || 'all';
+        currentCategoryId = categoryUniqueId || categorySlug || 'all';
         currentSubCategory = 'all';
 
         document.querySelectorAll('#categoryFilters .filter-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('#categoryFilters .filter-btn.has-subcategory').forEach(btn => btn.classList.remove('expanded'));
         button.classList.add('active');
 
         const subSections = document.querySelectorAll('#categoryFilters .sub-categories');
@@ -402,14 +412,28 @@
         if (subContainer && subContainer.classList.contains('sub-categories')) {
             subContainer.classList.add('show');
             subContainer.querySelectorAll('.sub-filter-btn').forEach(btn => btn.classList.remove('active'));
+            button.classList.add('expanded');
         }
 
         const url = new URL(window.location.href);
-        if (normalizeFilterValue(categoryId) === 'all') {
+        const normalizedCategory = normalizeFilterValue(currentCategory);
+
+        if (normalizedCategory === 'all') {
             url.searchParams.delete('category');
+            url.searchParams.delete('categoryId');
             url.searchParams.delete('subcategory');
         } else {
-            url.searchParams.set('category', categoryId);
+            if (categorySlug) {
+                url.searchParams.set('category', categorySlug);
+            } else {
+                url.searchParams.delete('category');
+            }
+
+            if (categoryUniqueId) {
+                url.searchParams.set('categoryId', categoryUniqueId);
+            } else {
+                url.searchParams.delete('categoryId');
+            }
             url.searchParams.delete('subcategory');
         }
         window.history.replaceState({}, '', url);
@@ -425,9 +449,19 @@
         document.querySelectorAll('#categoryFilters .sub-filter-btn').forEach(btn => btn.classList.remove('active'));
         button.classList.add('active');
 
+        const parentCategoryButton = button.closest('.sub-categories')?.previousElementSibling;
+        if (parentCategoryButton && parentCategoryButton.classList.contains('filter-btn')) {
+            parentCategoryButton.classList.add('expanded');
+        }
+
         const url = new URL(window.location.href);
         if (currentCategory && normalizeFilterValue(currentCategory) !== 'all') {
             url.searchParams.set('category', currentCategory);
+        }
+        if (currentCategoryId && normalizeFilterValue(currentCategoryId) !== 'all') {
+            url.searchParams.set('categoryId', currentCategoryId);
+        } else {
+            url.searchParams.delete('categoryId');
         }
         url.searchParams.set('subcategory', subCategoryId);
         window.history.replaceState({}, '', url);
@@ -564,17 +598,27 @@
         const filtersContainer = document.getElementById('categoryFilters');
         if (!filtersContainer) return;
 
+        const apiCategoryLookup = new Map();
+        categoriesFromApi.forEach(category => {
+            if (!category) return;
+            const key = normalizeFilterValue(category.slug || category.id || category.name);
+            if (!key || apiCategoryLookup.has(key)) return;
+            apiCategoryLookup.set(key, category);
+        });
+
         const categoriesMap = new Map();
 
-        const ensureCategoryEntry = (key, data) => {
-            const normalizedKey = normalizeFilterValue(key || data.slug || data.id || data.name);
+        const ensureCategoryEntry = (slugKey, data = {}) => {
+            const normalizedKey = normalizeFilterValue(slugKey || data.slug || data.id || data.name);
             if (!normalizedKey) return null;
 
             if (!categoriesMap.has(normalizedKey)) {
+                const apiCategory = apiCategoryLookup.get(normalizedKey);
                 categoriesMap.set(normalizedKey, {
-                    id: data.id,
-                    slug: data.slug || data.id,
-                    name: data.name || 'فئة غير محددة',
+                    id: apiCategory?.id || data.id || data.slug || normalizedKey,
+                    slug: apiCategory?.slug || data.slug || data.id || normalizedKey,
+                    name: apiCategory?.name || data.name || 'فئة غير محددة',
+                    productCount: 0,
                     subCategories: new Map()
                 });
             }
@@ -582,42 +626,80 @@
             return categoriesMap.get(normalizedKey);
         };
 
-        categoriesFromApi.forEach(category => {
-            if (!category) return;
-            ensureCategoryEntry(category.slug || category.id, category);
-        });
+        const ensureSubCategoryEntry = (categoryEntry, slugKey, data = {}) => {
+            if (!categoryEntry) return null;
+            const normalizedKey = normalizeFilterValue(slugKey || data.slug || data.id || data.name);
+            if (!normalizedKey) return null;
+
+            if (!categoryEntry.subCategories.has(normalizedKey)) {
+                categoryEntry.subCategories.set(normalizedKey, {
+                    id: data.id || data.slug || normalizedKey,
+                    slug: data.slug || data.id || normalizedKey,
+                    name: data.name || 'قسم فرعي',
+                    productCount: 0
+                });
+            }
+
+            return categoryEntry.subCategories.get(normalizedKey);
+        };
 
         allProducts.forEach(product => {
-            const categoryData = {
+            const categoryEntry = ensureCategoryEntry(product.categorySlug || product.categoryId, {
                 id: product.categoryId,
-                slug: product.categorySlug || product.categoryId,
+                slug: product.categorySlug,
                 name: product.categoryName
-            };
-            const categoryEntry = ensureCategoryEntry(categoryData.slug, categoryData);
+            });
             if (!categoryEntry) return;
 
+            categoryEntry.productCount += 1;
+
             if (product.subCategorySlug && product.subCategorySlug !== 'all') {
-                const subKey = normalizeFilterValue(product.subCategorySlug || product.subCategoryId);
-                if (subKey && !categoryEntry.subCategories.has(subKey)) {
-                    categoryEntry.subCategories.set(subKey, {
-                        id: product.subCategoryId,
-                        slug: product.subCategorySlug,
-                        name: product.subCategoryName || 'قسم فرعي'
-                    });
+                const subEntry = ensureSubCategoryEntry(categoryEntry, product.subCategorySlug || product.subCategoryId, {
+                    id: product.subCategoryId,
+                    slug: product.subCategorySlug,
+                    name: product.subCategoryName
+                });
+                if (subEntry) {
+                    subEntry.productCount += 1;
                 }
             }
         });
 
-        categoryHierarchy = categoriesMap;
+        const filteredCategories = new Map();
+
+        categoriesMap.forEach((category, key) => {
+            const filteredSubCategories = new Map();
+            category.subCategories.forEach((subCategory, subKey) => {
+                if (subCategory.productCount > 0) {
+                    filteredSubCategories.set(subKey, subCategory);
+                }
+            });
+
+            if (category.productCount > 0 && filteredSubCategories.size > 0) {
+                filteredCategories.set(key, {
+                    ...category,
+                    subCategories: filteredSubCategories
+                });
+            }
+        });
+
+        categoryHierarchy = filteredCategories;
 
         const fragment = document.createDocumentFragment();
         const normalizedCurrentCategory = normalizeFilterValue(currentCategory);
+        const normalizedCurrentCategoryId = normalizeFilterValue(currentCategoryId);
         const normalizedCurrentSubCategory = normalizeFilterValue(currentSubCategory);
 
         const allButton = document.createElement('button');
         allButton.className = 'filter-btn';
         allButton.dataset.category = 'all';
-        allButton.textContent = 'الكل';
+        allButton.dataset.categoryId = 'all';
+        allButton.innerHTML = `
+            <span class="filter-label">الكل</span>
+            <span class="filter-meta">
+                <span class="filter-count">${allProducts.length}</span>
+            </span>
+        `;
         fragment.appendChild(allButton);
 
         let hasActiveCategory = false;
@@ -626,13 +708,25 @@
             hasActiveCategory = true;
         }
 
-        categoriesMap.forEach(category => {
+        categoryHierarchy.forEach(category => {
             const categoryButton = document.createElement('button');
             categoryButton.className = 'filter-btn' + (category.subCategories.size ? ' has-subcategory' : '');
             categoryButton.dataset.category = category.slug || category.id;
-            categoryButton.textContent = category.name;
+            categoryButton.dataset.categoryId = category.id || category.slug || '';
+            const chevronHtml = category.subCategories.size
+                ? '<span class="filter-chevron"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>'
+                : '';
+            categoryButton.innerHTML = `
+                <span class="filter-label">${category.name}</span>
+                <span class="filter-meta">
+                    <span class="filter-count">${category.productCount}</span>
+                    ${chevronHtml}
+                </span>
+            `;
 
-            const isActiveCategory = isFilterMatch(category.slug || category.id || category.name, currentCategory);
+            const isActiveCategory = [category.slug, category.id, category.name]
+                .map(normalizeFilterValue)
+                .some(value => value && (value === normalizedCurrentCategory || value === normalizedCurrentCategoryId));
             if (isActiveCategory) {
                 categoryButton.classList.add('active');
                 hasActiveCategory = true;
@@ -650,7 +744,10 @@
                     const subButton = document.createElement('button');
                     subButton.className = 'sub-filter-btn';
                     subButton.dataset.subcategory = subCategory.slug || subCategory.id;
-                    subButton.textContent = subCategory.name;
+                    subButton.innerHTML = `
+                        <span class="sub-label">${subCategory.name}</span>
+                        <span class="sub-count">${subCategory.productCount}</span>
+                    `;
 
                     const isActiveSub = isFilterMatch(subCategory.slug || subCategory.id || subCategory.name, currentSubCategory);
                     if (isActiveCategory && isActiveSub) {
@@ -663,6 +760,7 @@
 
                 if (isActiveCategory && hasActiveSub) {
                     subContainer.classList.add('show');
+                    categoryButton.classList.add('expanded');
                 }
 
                 fragment.appendChild(subContainer);
