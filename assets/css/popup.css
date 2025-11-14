@@ -16,6 +16,10 @@ POPUP FORMS - style-popup.css
     z-index: 1000;
 }
 
+.popup.is-visible {
+    display: flex;
+}
+
 .popup-content {
     background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(10px);

@@ -74,14 +74,24 @@
                             <li><a href="./index.html#features">الفئات</a></li>
                             <li><a href="./products.html">المنتجات</a></li>
                             <li><a href="./index.html#contact-us">تواصل معنا</a></li>
-                         
+                            <li class="profile-link" hidden>
+                                <a href="./profile.html" class="profile-button" title="حسابي">
+                                    <i class="fa fa-user"></i>
+                                </a>
+                            </li>
                             <li class="cart-icon-wrapper">
                                 <a href="#" id="cart-icon">
                                     <img src="assets/images/cart-icon.png" alt="سلة المشتريات" class="cart-img-icon">
                                     <span id="cart-count">0</span>
                                 </a>
                             </li>
-                        
+                            <li class="main-button auth-action auth-action-logout" hidden>
+                                <button type="button" class="login-btn" data-auth-action="logout">تسجيل الخروج</button>
+                            </li>
+                            <li class="main-button auth-action auth-action-login">
+                                <a href="#" class="login-btn" data-auth-action="login">تسجيل الدخول</a>
+                            </li>
+
                         </ul>
 
                         <!-- Login Popup -->
@@ -162,9 +172,6 @@
                                 <div class="profile-actions">
                                     <button class="action-btn primary" onclick="editProfile()">
                                         <i class="fa fa-edit"></i> تعديل الملف
-                                    </button>
-                                    <button class="action-btn secondary" onclick="logout()">
-                                        <i class="fa fa-sign-out-alt"></i> تسجيل الخروج
                                     </button>
                                 </div>
                             </div>

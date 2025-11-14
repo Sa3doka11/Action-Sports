@@ -202,8 +202,8 @@
         if (!grid) return;
 
         const filteredProducts = allProducts.filter(product => {
-            const matchesCategory = matchesFilter(currentCategory, product.categorySlug, product.categoryId, product.categoryName);
-            const matchesSubCategory = matchesFilter(currentSubCategory, product.subCategorySlug, product.subCategoryId, product.subCategoryName);
+            const matchesCategory = matchesAnyFilter([currentCategory, currentCategoryId], product.categorySlug, product.categoryId, product.categoryName);
+            const matchesSubCategory = matchesAnyFilter([currentSubCategory], product.subCategorySlug, product.subCategoryId, product.subCategoryName);
             const matchesSearch = !searchQuery ||
                 product.name.toLowerCase().includes(searchQuery) ||
                 (product.categoryName && product.categoryName.toLowerCase().includes(searchQuery)) ||
@@ -212,13 +212,13 @@
         });
 
         if (filteredProducts.length === 0) {
-            grid.style.display = 'none';
-            if (noProducts) noProducts.style.display = 'block';
+            grid.classList.add('is-hidden');
+            if (noProducts) noProducts.classList.remove('is-hidden');
             return;
         }
 
-        grid.style.display = 'grid';
-        if (noProducts) noProducts.style.display = 'none';
+        grid.classList.remove('is-hidden');
+        if (noProducts) noProducts.classList.add('is-hidden');
 
         grid.innerHTML = filteredProducts.map(product => `
             <div class="product-item product-card" data-id="${product.id}" data-name="${product.name}" data-price="${product.price}" data-image="${product.image}" data-category="${product.categorySlug}">
@@ -294,17 +294,17 @@
 
             cartItemDiv.innerHTML = `
                 <div class="cart-item-info">
-                    <img class="cart-item-image" src="${item.image}" alt="${item.name}" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px;">
+                    <img class="cart-item-image" src="${item.image}" alt="${item.name}">
                     <div class="cart-item-details">
                         <div class="cart-item-name">${item.name}</div>
                         <div class="cart-item-price">${formatPrice(item.price)} </div>
                     </div>
                 </div>
-                <div class="cart-item-controls" style="display: flex; align-items: center; gap: 5px;">
-                    <button class="decrease-btn" data-id="${item.id}" style="width: 28px; height: 28px; border: 1px solid #ddd; background: white; color: #333; cursor: pointer; border-radius: 3px; font-size: 16px; font-weight: 700;">−</button>
-                    <span class="quantity-display" style="width: 28px; text-align: center; font-weight: 700; font-size: 14px;">${item.quantity}</span>
-                    <button class="increase-btn" data-id="${item.id}" style="width: 28px; height: 28px; border: 1px solid #ddd; background: white; color: #333; cursor: pointer; border-radius: 3px; font-size: 16px; font-weight: 700;">+</button>
-                    <button class="remove-btn" data-id="${item.id}" style="width: 28px; height: 28px; border: 1px solid #ff6b6b; background: white; color: #ff6b6b; cursor: pointer; border-radius: 3px; font-size: 14px; margin-right: 8px;" title="إزالة">🗑</button>
+                <div class="cart-item-controls">
+                    <button class="decrease-btn" data-id="${item.id}">−</button>
+                    <span class="quantity-display">${item.quantity}</span>
+                    <button class="increase-btn" data-id="${item.id}">+</button>
+                    <button class="remove-btn" data-id="${item.id}" title="إزالة">🗑</button>
                 </div>
             `;
 
@@ -365,8 +365,8 @@
             return;
         }
         if (cartPopup) {
-            cartPopup.style.display = 'block';
-            document.body.style.overflow = 'hidden';
+            cartPopup.classList.add('is-open');
+            document.body.classList.add('cart-locked');
             ensureCartStateLoaded().finally(() => {
                 renderCart();
             });
@@ -377,8 +377,8 @@
     function closeCart() {
         const cartPopup = document.getElementById('cart-popup');
         if (cartPopup) {
-            cartPopup.style.display = 'none';
-            document.body.style.overflow = 'auto';
+            cartPopup.classList.remove('is-open');
+            document.body.classList.remove('cart-locked');
         }
     }
 
@@ -829,6 +829,11 @@
         }
 
         return candidates.some(candidate => normalizeFilterValue(candidate) === normalizedTarget);
+    }
+
+    function matchesAnyFilter(targets, ...candidates) {
+        const targetList = Array.isArray(targets) ? targets : [targets];
+        return targetList.some(target => matchesFilter(target, ...candidates));
     }
 
     function isFilterMatch(candidate, target) {

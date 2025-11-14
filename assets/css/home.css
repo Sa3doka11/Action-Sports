@@ -249,6 +249,13 @@
     border-radius: 5px;
   }
 
+  .contact-form fieldset {
+    border: none;
+    padding: 0;
+    margin: 0 0 20px 0;
+    background: transparent;
+  }
+
   .contact-form input,
   .contact-form textarea {
     color: #7a7a7a;
@@ -285,9 +292,42 @@
 
   .contact-form button:hover {
     background-color: var(--primary-color-hover);
-  }
+}
 
+[data-theme="dark"] #contact-us .contact-form {
+    background-image: none;
+    background-color: rgba(17, 20, 24, 0.75);
+}
 
+[data-theme="dark"] #contact-us .contact-form #contact {
+    background-color: var(--bg-white);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="dark"] .contact-form input,
+[data-theme="dark"] .contact-form textarea {
+    background-color: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--text-color);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .contact-form input:focus,
+[data-theme="dark"] .contact-form textarea:focus {
+    border-color: var(--primary-color);
+    box-shadow: inset 0 0 0 1px var(--primary-color);
+}
+
+[data-theme="dark"] .contact-form input::placeholder,
+[data-theme="dark"] .contact-form textarea::placeholder {
+    color: var(--text-muted);
+}
+
+[data-theme="dark"] .contact-form button {
+    box-shadow: 0 10px 25px rgba(231, 76, 60, 0.25);
+}
 
 
 /* ===================================================================
@@ -475,11 +515,16 @@
       flex-direction: column;
     }
 
-    .product-card img {
-      width: 12rem;
-      max-width: 12rem;
-      height: auto;
-      object-fit: contain;
+    .product-card .image-thumb {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border-radius: 12px;
+      background-color: var(--bg-light);
+      margin-bottom: 18px;
     }
 
     .product-card h4 {
@@ -730,10 +775,18 @@
       margin-bottom: 35px;
     }
 
-    .feature-item .left-icon img {
+    .feature-item .left-icon {
+      width: 85px;
+      height: 85px;
       margin-left: 0;
       margin-bottom: 15px;
-      height: 85px;
+    }
+
+    .feature-item .left-icon img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
     }
 
     .feature-item .right-content {
@@ -784,57 +837,71 @@
     }
 
     .product-card {
-      min-height: 480px;
-      max-height: 480px;
-      height: 480px;
       width: 100%;
-      padding: 20px;
-      margin-bottom: 25px;
+      padding: 15px;
+      margin-bottom: 15px;
       display: flex;
       flex-direction: column;
+      min-height: auto;
     }
 
-    .product-card img {
-      width: 10rem;
-      max-width: 10rem;
-      height: auto;
+    .product-card .image-thumb {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border-radius: 10px;
+      background-color: var(--bg-light);
+      margin-bottom: 12px;
+      flex-shrink: 0;
+    }
+
+    .product-card .image-thumb img {
+      width: 100%;
+      height: 100%;
       object-fit: contain;
+      transition: transform 0.3s ease;
     }
 
     .product-card span {
-      font-size: 13px;
+      font-size: 12px;
     }
 
     .product-card h4 {
-      font-size: 18px;
+      font-size: 17px;
+      margin-bottom: 8px;
+      line-height: 1.3;
     }
 
     .product-card .product-description {
-      font-size: 14px;
-      line-height: 20px;
-      margin-bottom: 12px;
+      font-size: 13px;
+      line-height: 19px;
+      margin-bottom: 10px;
       flex: 1;
       overflow: hidden;
       display: -webkit-box;
-      -webkit-line-clamp: 3;
+      -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
     }
 
     .product-card .product-price {
-      font-size: 18px;
-      margin-bottom: 15px;
+      font-size: 17px;
+      margin-bottom: 12px;
+      font-weight: 600;
     }
 
     .product-card .product-buttons {
-      flex-direction: column;
+      flex-direction: row;
       gap: 8px;
       margin-top: auto;
     }
 
     .product-card .product-buttons a {
-      width: 100%;
-      padding: 11px;
-      font-size: 14px;
+      flex: 1;
+      padding: 10px;
+      font-size: 13px;
     }
 
     /* Contact Us */
@@ -979,21 +1046,32 @@
     }
 
     .product-card {
-      min-height: 450px;
-      max-height: 450px;
-      height: 450px;
       width: 100%;
-      padding: 18px;
-      margin-bottom: 10px;
+      padding: 15px;
+      margin-bottom: 15px;
       display: flex;
       flex-direction: column;
+      min-height: auto;
     }
 
-    .product-card img {
-      width: 9rem;
-      max-width: 9rem;
-      height: auto;
+    .product-card .image-thumb {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border-radius: 10px;
+      background-color: var(--bg-light);
+      margin-bottom: 12px;
+      flex-shrink: 0;
+    }
+
+    .product-card .image-thumb img {
+      width: 100%;
+      height: 100%;
       object-fit: contain;
+      transition: transform 0.3s ease;
     }
 
     .product-card h4 {
@@ -1006,7 +1084,7 @@
       flex: 1;
       overflow: hidden;
       display: -webkit-box;
-      -webkit-line-clamp: 3;
+      -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
     }
 
@@ -1085,21 +1163,32 @@
     }
 
     .product-card {
-      min-height: 420px;
-      max-height: 420px;
-      height: 420px;
       width: 100%;
       padding: 15px;
-      margin-bottom: 8px;
+      margin-bottom: 15px;
       display: flex;
       flex-direction: column;
+      min-height: auto;
     }
 
-    .product-card img {
-      width: 7.5rem;
-      max-width: 7.5rem;
-      height: auto;
+    .product-card .image-thumb {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border-radius: 10px;
+      background-color: var(--bg-light);
+      margin-bottom: 12px;
+      flex-shrink: 0;
+    }
+
+    .product-card .image-thumb img {
+      width: 100%;
+      height: 100%;
       object-fit: contain;
+      transition: transform 0.3s ease;
     }
 
     .product-card h4 {
@@ -1116,11 +1205,14 @@
 
     .product-card .product-buttons {
       margin-top: auto;
+      gap: 8px;
+      flex-direction: row;
     }
 
     .product-card .product-buttons a {
-      font-size: 13px;
+      flex: 1;
       padding: 10px;
+      font-size: 13px;
     }
 
     /* Contact Form */

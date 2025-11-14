@@ -771,7 +771,7 @@ function toggleLoading(button, loading, loadingText) {
 function showInlinePopup(popup) {
     if (!popup) return;
     popup.hidden = false;
-    popup.style.display = 'flex';
+    popup.classList.add('is-visible');
     popup.setAttribute('aria-hidden', 'false');
     popup.removeAttribute('inert');
     const focusable = popup.querySelector('input, button, [tabindex]:not([tabindex="-1"])');
@@ -784,7 +784,7 @@ function showInlinePopup(popup) {
 function hideInlinePopup(popup) {
     if (!popup) return;
     popup.hidden = true;
-    popup.style.display = 'none';
+    popup.classList.remove('is-visible');
     popup.setAttribute('aria-hidden', 'true');
     popup.setAttribute('inert', '');
 }
@@ -1555,7 +1555,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function togglePopupVisibility(popup, visible) {
         if (!popup) return;
-        popup.style.display = visible ? 'flex' : 'none';
+        popup.classList.toggle('is-visible', visible);
         popup.setAttribute('aria-hidden', visible ? 'false' : 'true');
         if (visible) {
             popup.removeAttribute('inert');
