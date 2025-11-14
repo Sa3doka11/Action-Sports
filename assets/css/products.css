@@ -3,12 +3,9 @@ PRODUCTS PAGE - style-products.css
 صفحة المنتجات (products.html)
 =================================================================== */
 
-* {
-    font-family: 'Cairo', sans-serif !important;
-}
-
 body {
     background-color: #f5f5f5;
+    font-family: 'Cairo', sans-serif;
 }
 
 .products-page-section {
@@ -47,6 +44,7 @@ body {
     box-shadow: 0 12px 35px rgba(0, 0, 0, 0.08);
     margin-bottom: 35px;
     border: 1px solid rgba(0, 0, 0, 0.03);
+    font-family: 'Cairo', sans-serif;
 }
 
 .filters-section h3 {
@@ -108,6 +106,7 @@ body {
     position: relative;
     gap: 12px;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
+    font-family: inherit;
 }
 
 .filter-btn::after {
@@ -130,6 +129,7 @@ body {
     color: #adb5bd;
     font-size: 13px;
     font-weight: 500;
+    font-family: inherit;
 }
 
 .filter-btn .filter-count {
@@ -141,6 +141,7 @@ body {
     font-weight: 700;
     display: inline-flex;
     justify-content: center;
+    font-family: inherit;
 }
 
 .filter-btn .filter-chevron {
@@ -223,6 +224,7 @@ body {
     text-align: right;
     position: relative;
     gap: 8px;
+    font-family: inherit;
 }
 
 .sub-filter-btn:last-child {
