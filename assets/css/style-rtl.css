@@ -790,6 +790,10 @@
       margin-bottom: 10px;
     }
 
+    [data-theme="dark"] .product-card span {
+      color: var(--primary-color);
+    }
+
     .product-card .product-heading h4 {
       font-size: 20px;
       font-weight: 600;
@@ -1365,7 +1369,6 @@
     }
 
     [data-theme="dark"] .product-card h4,
-    [data-theme="dark"] .product-card span,
     [data-theme="dark"] .product-card p {
       color: var(--text-color);
     }

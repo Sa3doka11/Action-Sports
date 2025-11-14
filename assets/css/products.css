@@ -375,6 +375,44 @@ body {
     margin: 0 0 15px 0;
 }
 
+[data-theme="dark"] .products-grid {
+    gap: 24px;
+}
+
+[data-theme="dark"] .product-card {
+    background-color: #2b2f38;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="dark"] .product-card span {
+    color: var(--primary-color);
+}
+
+[data-theme="dark"] .product-card .product-heading h4,
+[data-theme="dark"] .product-card h4 {
+    color: #f5f7fb;
+}
+
+[data-theme="dark"] .product-card .product-description {
+    color: rgba(245, 247, 251, 0.85);
+}
+
+[data-theme="dark"] .product-card .product-price {
+    color: #f5f7fb;
+}
+
+[data-theme="dark"] .product-card .product-buttons a.secondary-button {
+    color: #f5f7fb;
+    border-color: rgba(245, 247, 251, 0.35);
+}
+
+[data-theme="dark"] .product-card .product-buttons a.secondary-button:hover {
+    border-color: var(--primary-color);
+    background-color: var(--primary-color);
+    color: #fff;
+}
+
 .product-card .product-buttons {
     display: flex;
     justify-content: space-between;
