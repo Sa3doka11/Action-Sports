@@ -1062,7 +1062,7 @@ function renderOrderDetails(order) {
             </div>
             <div class="order-details-card order-details-summary">
                 <div><span>قيمة المنتجات:</span><span>${formatPrice(subtotal)}</span></div>
-                <div><span>مصاريف الشحن:</span><span>${formatPrice(shippingPrice)}</span></div>
+                ${shippingPrice > 0 ? `<div><span>مصاريف الشحن:</span><span>${formatPrice(shippingPrice)}</span></div>` : ''}
                 ${taxPrice ? `<div><span>الضريبة:</span><span>${formatPrice(taxPrice)}</span></div>` : ''}
                 <div class="order-details-total"><span>الإجمالي:</span><span>${formatPrice(finalTotal)}</span></div>
             </div>

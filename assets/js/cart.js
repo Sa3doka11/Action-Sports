@@ -1,12 +1,7 @@
-/* ===================================================================
-8. Cart Page Functionality with Backend Integration
-=================================================================== */
-
 (function () {
     'use strict';
     const API_BASE_HOST = "https://action-sports-api.vercel.app/api";
     const FALLBACK_IMAGE = 'assets/images/product1.png';
-    const SHIPPING_FEE = 50;
     const CASH_PAYMENT_METHOD = 'cash';
     const CURRENCY_ICON_HTML = '<img src="./assets/images/Saudi_Riyal_Symbol.png" alt="ريال" class="saudi-riyal-symbol" style="width: 20px; vertical-align: middle; margin-right: 3px;">';
 
@@ -21,12 +16,116 @@
         cancel: (id) => `${API_BASE_HOST}/orders/${id}/cancel`
     };
 
+    const PAYMENT_SETTINGS_ENDPOINT = `${API_BASE_HOST}/payment-settings`;
+    const PAYMENT_METHODS_CONFIG = [
+        {
+            key: 'payOnDelivery',
+            value: 'cash',
+            label: 'الدفع عند الاستلام'
+        },
+        {
+            key: 'installments',
+            value: 'installment',
+            label: 'برنامج التقسيط'
+        },
+        {
+            key: 'payWithCard',
+            value: 'card',
+            label: 'بطاقة ائتمان'
+        }
+    ];
+    let paymentSettingsCache = null;
+
     const productMetadataCache = (() => {
         if (typeof window !== 'undefined' && window.__actionSportsProductMetadata__ instanceof Map) {
             return window.__actionSportsProductMetadata__;
         }
         return new Map();
     })();
+
+    async function fetchPaymentSettings(force = false) {
+        if (!force && paymentSettingsCache) {
+            return paymentSettingsCache;
+        }
+
+        try {
+            const token = getAuthTokenSafe();
+            const headers = {
+                'Accept': 'application/json'
+            };
+
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+                headers['token'] = token;
+            }
+
+            const response = await fetch(PAYMENT_SETTINGS_ENDPOINT, { headers });
+
+            if (!response.ok) {
+                const error = new Error(`Failed to load payment settings: ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+
+            const result = await response.json();
+            const data = result?.data || {};
+
+            paymentSettingsCache = {
+                payOnDelivery: Boolean(data.payOnDelivery),
+                payWithCard: Boolean(data.payWithCard),
+                installments: Boolean(data.installments)
+            };
+
+            return paymentSettingsCache;
+        } catch (error) {
+            if (error?.status === 401) {
+                console.warn('⚠️ Payment settings require authentication; falling back to defaults.');
+            } else {
+                console.error('❌ Unable to fetch payment settings:', error);
+            }
+            paymentSettingsCache = {
+                payOnDelivery: true,
+                payWithCard: true,
+                installments: false
+            };
+            return paymentSettingsCache;
+        }
+    }
+
+    function populatePaymentMethodOptions(selectElement, settings) {
+        if (!selectElement) return;
+
+        selectElement.innerHTML = '';
+
+        const available = PAYMENT_METHODS_CONFIG.filter(({ key }) => settings[key]);
+
+        if (!available.length) {
+            const fallbackOption = document.createElement('option');
+            fallbackOption.value = CASH_PAYMENT_METHOD;
+            fallbackOption.textContent = 'الدفع عند الاستلام';
+            selectElement.appendChild(fallbackOption);
+            selectElement.value = CASH_PAYMENT_METHOD;
+            selectElement.setAttribute('data-only-method', 'true');
+            // We'll rely on caller to trigger change after listeners attach
+            return;
+        }
+
+        available.forEach(({ value, label }) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            selectElement.appendChild(option);
+        });
+
+        const defaultMethod = available[0]?.value || CASH_PAYMENT_METHOD;
+        selectElement.value = defaultMethod;
+    }
+
+    async function preloadPaymentMethods(selectElement) {
+        const settings = await fetchPaymentSettings();
+        populatePaymentMethodOptions(selectElement, settings);
+        return selectElement;
+    }
 
     function translateAddressType(type) {
         switch ((type || '').toLowerCase()) {
@@ -212,16 +311,12 @@
             return sum + (price * quantity);
         }, 0);
 
-        const shipping = (() => {
-            const declared = Number(state.totals?.shipping);
-            if (Number.isFinite(declared) && declared > 0) return declared;
-            return state.items.length ? SHIPPING_FEE : 0;
-        })();
+        const shipping = 0;
 
         const total = (() => {
             const declared = Number(state.totals?.total);
             if (Number.isFinite(declared) && declared > 0) return declared;
-            return subtotal + shipping;
+            return subtotal;
         })();
 
         const itemsHTML = state.items.map(item => {
@@ -277,10 +372,6 @@
                         <span>المجموع الفرعي:</span>
                         <span>${renderCurrencyWithIcon(subtotal)}</span>
                     </div>
-                    <div class="summary-row">
-                        <span>الشحن:</span>
-                        <span>${renderCurrencyWithIcon(shipping)}</span>
-                    </div>
                     <div class="summary-row total">
                         <span>الإجمالي:</span>
                         <span class="price" id="orderTotalValue">${renderCurrencyWithIcon(total)}</span>
@@ -310,9 +401,7 @@
                             <div class="form-group">
                                 <label for="checkoutPaymentMethod">طريقة الدفع *</label>
                                 <select name="payment_method" id="checkoutPaymentMethod" required>
-                                    <option value="cash">الدفع عند الاستلام</option>
-                                    <option value="installment">برنامج التقسيط</option>
-                                    <option value="card">بطاقة ائتمان</option>
+                                    <option value="">اختر طريقة الدفع</option>
                                 </select>
                             </div>
 
@@ -361,6 +450,13 @@
         const addAddressButton = container.querySelector('#addCheckoutAddressBtn');
         const paymentMethod = container.querySelector('#checkoutPaymentMethod');
 
+        if (paymentMethod) {
+            preloadPaymentMethods(paymentMethod).then(() => {
+                paymentMethod.addEventListener('change', handleCheckoutPaymentChange);
+                handleCheckoutPaymentChange();
+            });
+        }
+
         if (checkoutButton) {
             checkoutButton.addEventListener('click', function (event) {
                 if (typeof requireAuth === 'function' && !requireAuth(event, 'cart.html')) {
@@ -371,11 +467,6 @@
                 }
                 showAddressSelection();
             });
-        }
-
-        if (paymentMethod) {
-            paymentMethod.addEventListener('change', handleCheckoutPaymentChange);
-            handleCheckoutPaymentChange();
         }
 
         container.querySelectorAll('.quantity-btn').forEach(button => {
@@ -718,8 +809,8 @@
 
         const state = getCartStateSafe();
         const subtotal = Number(state.totals?.subtotal) || 0;
-        const shipping = state.totals?.shipping != null ? state.totals.shipping : SHIPPING_FEE;
-        const total = state.totals?.total || (subtotal + shipping);
+        const shipping = 0;
+        const total = state.totals?.total || subtotal;
 
         if (totalValue) {
             totalValue.innerHTML = renderCurrencyWithIcon(total);
@@ -778,9 +869,9 @@
 
         const payload = {
             paymentMethod: selectedPaymentMethod || CASH_PAYMENT_METHOD,
-            shippingPrice: SHIPPING_FEE,
+            shippingPrice: 0,
             taxPrice: 0,
-            totalOrderPrice: subtotal + SHIPPING_FEE,
+            totalOrderPrice: subtotal,
             cartItems: state.items.map(item => ({
                 productId: item.productId || item.id,
                 quantity: item.quantity,
