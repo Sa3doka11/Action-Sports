@@ -1523,10 +1523,25 @@ body {
     justify-content: center;
 }
 
+.status-new {
+    background: rgba(52, 152, 219, 0.12);
+    color: #2980b9;
+}
+
 .status-pending {
     background: rgba(231, 76, 60, 0.1);
     /* أحمر خفيف */
     color: #e74c3c;
+}
+
+.status-processing {
+    background: rgba(241, 196, 15, 0.12);
+    color: #c27c0e;
+}
+
+.status-paid {
+    background: rgba(46, 204, 113, 0.12);
+    color: #27ae60;
 }
 
 .status-shipped {
@@ -1535,10 +1550,20 @@ body {
     color: #2c3e50;
 }
 
+.status-out-for-delivery {
+    background: rgba(155, 89, 182, 0.12);
+    color: #8e44ad;
+}
+
 .status-delivered {
     background: rgba(189, 195, 199, 0.1);
     /* رمادي فاتح */
     color: #bdc3c7;
+}
+
+.status-cancelled {
+    background: rgba(149, 165, 166, 0.15);
+    color: #7f8c8d;
 }
 
 .order-actions {
@@ -2405,6 +2430,21 @@ body {
     color: #ff8677;
 }
 
+[data-theme="dark"] .status-new {
+    background: rgba(52, 152, 219, 0.18);
+    color: #7ac4f5;
+}
+
+[data-theme="dark"] .status-processing {
+    background: rgba(241, 196, 15, 0.18);
+    color: #f7d358;
+}
+
+[data-theme="dark"] .status-paid {
+    background: rgba(46, 204, 113, 0.18);
+    color: #6fe0a0;
+}
+
 [data-theme="dark"] .status-shipped {
     background: rgba(52, 152, 219, 0.15);
     color: #5dade2;
@@ -2413,6 +2453,16 @@ body {
 [data-theme="dark"] .status-delivered {
     background: rgba(46, 204, 113, 0.15);
     color: #58d68d;
+}
+
+[data-theme="dark"] .status-out-for-delivery {
+    background: rgba(155, 89, 182, 0.18);
+    color: #b695d6;
+}
+
+[data-theme="dark"] .status-cancelled {
+    background: rgba(149, 165, 166, 0.2);
+    color: #bfc7c7;
 }
 [data-theme="dark"] .payment-method {
     background: var(--bg-light);

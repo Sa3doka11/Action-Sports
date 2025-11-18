@@ -1072,17 +1072,99 @@ function renderOrderDetails(order) {
 }
 
 function renderStatusBadge(order) {
-    const status = order.status || (order.isCanceled ? 'cancelled' : order.isDelivered ? 'delivered' : order.isPaid ? 'paid' : 'pending');
-    const map = {
-        delivered: { label: 'تم التوصيل', className: 'status-delivered' },
+    const statusMap = {
+        new: { label: 'جديد', className: 'status-new' },
+        pending: { label: 'قيد المعالجة', className: 'status-pending' },
+        processing: { label: 'قيد التجهيز', className: 'status-processing' },
         paid: { label: 'تم السداد', className: 'status-paid' },
         shipped: { label: 'تم الشحن', className: 'status-shipped' },
-        processing: { label: 'قيد التجهيز', className: 'status-processing' },
-        pending: { label: 'قيد المعالجة', className: 'status-pending' },
+        'out-for-delivery': { label: 'قيد التوصيل', className: 'status-out-for-delivery' },
+        delivered: { label: 'تم التوصيل', className: 'status-delivered' },
         cancelled: { label: 'ملغي', className: 'status-cancelled' }
     };
 
-    const result = map[status] || map.pending;
+    const aliasMap = {
+        new: 'new',
+        'جديد': 'new',
+        created: 'new',
+        placed: 'new',
+        pending: 'pending',
+        'status-pending': 'pending',
+        'status_pending': 'pending',
+        'قيد-المعالجة': 'pending',
+        'قيد المعالجة': 'pending',
+        processing: 'processing',
+        'status-processing': 'processing',
+        'status_processing': 'processing',
+        'processing-order': 'processing',
+        'in-progress': 'processing',
+        'under-processing': 'processing',
+        'under-preparation': 'processing',
+        'under_preparation': 'processing',
+        preparing: 'processing',
+        'قيد-التجهيز': 'processing',
+        'قيد التجهيز': 'processing',
+        paid: 'paid',
+        'status-paid': 'paid',
+        'status_paid': 'paid',
+        'تم-السداد': 'paid',
+        'تم السداد': 'paid',
+        shipped: 'shipped',
+        'status-shipped': 'shipped',
+        'status_shipped': 'shipped',
+        'تم-الشحن': 'shipped',
+        'تم الشحن': 'shipped',
+        'out-for-delivery': 'out-for-delivery',
+        'status-out-for-delivery': 'out-for-delivery',
+        'status_out_for_delivery': 'out-for-delivery',
+        'out_for_delivery': 'out-for-delivery',
+        'ready-for-delivery': 'out-for-delivery',
+        'in-transit': 'out-for-delivery',
+        'on-the-way': 'out-for-delivery',
+        'قيد-التوصيل': 'out-for-delivery',
+        'قيد التوصيل': 'out-for-delivery',
+        delivered: 'delivered',
+        'status-delivered': 'delivered',
+        'status_delivered': 'delivered',
+        completed: 'delivered',
+        'تم-التوصيل': 'delivered',
+        'تم التوصيل': 'delivered',
+        cancelled: 'cancelled',
+        'status-cancelled': 'cancelled',
+        'status_cancelled': 'cancelled',
+        canceled: 'cancelled',
+        'ملغي': 'cancelled'
+    };
+
+    const statusCandidates = [
+        order?.deliveryStatus,
+        order?.status,
+        order?.status?.current,
+        order?.status?.value,
+        order?.status?.status,
+        order?.orderStatus,
+        order?.currentStatus,
+        order?.statusText,
+        order?.state
+    ];
+
+    const rawStatus = statusCandidates.find(value => typeof value === 'string' && value.trim()) || '';
+
+    const normalizeStatus = (value) => {
+        if (!value) return '';
+        const stringValue = String(value).trim();
+        if (!stringValue) return '';
+        const slug = stringValue.toLowerCase().replace(/[_\s]+/g, '-');
+        return aliasMap[slug] || aliasMap[stringValue] || slug;
+    };
+
+    const fallbackStatus =
+        order?.deliveryStatus ||
+        (order?.isCanceled ? 'cancelled' : order?.isDelivered ? 'delivered' : order?.isPaid ? 'paid' : '');
+
+    const normalizedStatus = normalizeStatus(rawStatus) || normalizeStatus(fallbackStatus) || 'pending';
+
+    const result = statusMap[normalizedStatus] || statusMap.pending;
     return `<span class="order-status ${result.className}">${result.label}</span>`;
 }
 
