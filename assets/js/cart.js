@@ -13,7 +13,8 @@
         getById: (id) => `${API_BASE_HOST}/orders/${id}`,
         getMyOrders: () => `${API_BASE_HOST}/orders/me`,
         deliver: (id) => `${API_BASE_HOST}/orders/${id}/deliver`,
-        cancel: (id) => `${API_BASE_HOST}/orders/${id}/cancel`
+        cancel: (id) => `${API_BASE_HOST}/orders/${id}/cancel`,
+        payWithPayTabs: () => `${API_BASE_HOST}/orders/pay-with-paytabs`
     };
 
     const PAYMENT_SETTINGS_ENDPOINT = `${API_BASE_HOST}/payment-settings`;
@@ -783,7 +784,6 @@
 
         switch (paymentMethod.value) {
             case 'card': {
-                window.location.href = 'card-payment.html';
                 break;
             }
             case 'installment': {
@@ -975,6 +975,120 @@
         return result;
     }
 
+    async function processOrderSubmission({ paymentMethod, payload, token, cartId }) {
+        if (paymentMethod === 'card') {
+            return initiatePayTabsPayment({ payload, token, cartId });
+        }
+
+        const orderResponse = await postOrderRequest(payload, token, cartId);
+        return {
+            message: orderResponse?.message || orderResponse?.data?.message,
+            data: orderResponse
+        };
+    }
+
+    async function initiatePayTabsPayment({ payload, token, cartId }) {
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+            headers['token'] = token;
+        }
+
+        const normalizedCartItems = Array.isArray(payload.cartItems) ? payload.cartItems.map((item, index) => {
+            const productSource = item?.product || item?.productId || item?.rawProduct || {};
+            const productIdValue = typeof item?.productId === 'object'
+                ? (item.productId._id || item.productId.id || item.productId.value)
+                : (item.productId || item.id);
+
+            const resolvedName = item?.name || productSource?.name || `منتج ${index + 1}`;
+            const resolvedPrice = Number(item?.price ?? productSource?.price ?? productSource?.unitPrice ?? 0);
+            const resolvedQuantity = Number(item?.quantity ?? item?.qty ?? 1) || 1;
+
+            return {
+                productId: productIdValue,
+                quantity: resolvedQuantity,
+                price: resolvedPrice,
+                name: resolvedName,
+                productName: resolvedName,
+                product: {
+                    _id: productIdValue,
+                    name: resolvedName,
+                    price: resolvedPrice,
+                    images: productSource?.images || []
+                }
+            };
+        }) : [];
+
+        const customerPayload = {
+            name: payload.customerName,
+            email: payload.customerAccount || undefined,
+            phone: payload.shippingAddress?.phone || undefined
+        };
+
+        const payTabsPayload = {
+            cartId,
+            paymentMethod: payload.paymentMethod,
+            totalOrderPrice: payload.totalOrderPrice,
+            shippingPrice: payload.shippingPrice,
+            taxPrice: payload.taxPrice,
+            shippingAddress: {
+                ...payload.shippingAddress,
+                name: payload.shippingAddress?.name || payload.customerName
+            },
+            cartItems: normalizedCartItems,
+            customerName: payload.customerName,
+            customerAccount: payload.customerAccount,
+            customer: customerPayload
+        };
+
+        console.log('🚀 Initiating PayTabs payment...');
+        console.log('📍 Endpoint:', ORDER_ENDPOINTS.payWithPayTabs());
+        console.log('📦 Payload:', payTabsPayload);
+
+        const response = await fetch(ORDER_ENDPOINTS.payWithPayTabs(), {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payTabsPayload)
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            console.error('❌ PayTabs API error:', result);
+            const message = result?.message || result?.error || 'تعذر بدء عملية الدفع عبر البطاقات.';
+            const error = new Error(message);
+            error.status = response.status;
+            error.details = result;
+            throw error;
+        }
+
+        const redirectUrl =
+            result?.data?.redirectUrl ||
+            result?.data?.redirect_url ||
+            result?.redirectUrl ||
+            result?.redirect_url ||
+            result?.data?.paymentUrl ||
+            result?.paymentUrl;
+
+        if (!redirectUrl) {
+            console.error('⚠️ PayTabs response missing redirect URL:', result);
+            const error = new Error('لم يتم استلام رابط الدفع من بوابة PayTabs.');
+            error.status = response.status;
+            error.details = result;
+            throw error;
+        }
+
+        console.log('🔗 PayTabs redirect URL:', redirectUrl);
+
+        return {
+            redirectUrl,
+            message: result?.message || 'جاري تحويلك إلى بوابة الدفع...'
+        };
+    }
+
     function toggleSubmitButton(submitBtn, isLoading, originalContent) {
         if (!submitBtn) return;
 
@@ -1013,11 +1127,6 @@
         const selectedPaymentMethod = paymentSelect.value;
         if (!selectedPaymentMethod) {
             showToast('يرجى اختيار طريقة الدفع.', 'info');
-            return;
-        }
-
-        if (selectedPaymentMethod === 'card') {
-            window.location.href = 'card-payment.html';
             return;
         }
 
@@ -1065,26 +1174,25 @@
         toggleSubmitButton(confirmBtn, true, originalContent);
 
         try {
-            const orderResult = await postOrderRequest(payload, token, cartId);
+            const handlingResult = await processOrderSubmission({
+                paymentMethod: selectedPaymentMethod,
+                payload,
+                token,
+                cartId
+            });
 
-            showToast('تم إنشاء الطلب بنجاح! سيتم التواصل معك قريباً.', 'success');
-
-            try {
-                if (typeof clearCartContents === 'function') {
-                    await clearCartContents();
-                }
-            } catch (clearError) {
-                console.error('❌ Failed to clear cart after order:', clearError);
+            if (handlingResult?.redirectUrl) {
+                window.location.href = handlingResult.redirectUrl;
+                return;
             }
 
-            try {
-                updateCartCount();
-                renderCart();
-            } catch (uiError) {
-                console.warn('⚠️ Failed to update cart UI after order:', uiError);
+            if (handlingResult?.message) {
+                showToast(handlingResult.message, 'success');
+            } else {
+                showToast('تم إنشاء الطلب بنجاح! سيتم التواصل معك قريباً.', 'success');
             }
 
-            redirectToProfileOrders();
+            await finalizeSuccessfulOrder();
         } catch (error) {
             console.error('❌ Order submission failed:', error);
 
@@ -1106,6 +1214,25 @@
         } finally {
             toggleSubmitButton(confirmBtn, false, originalContent);
         }
+    }
+
+    async function finalizeSuccessfulOrder() {
+        try {
+            if (typeof clearCartContents === 'function') {
+                await clearCartContents();
+            }
+        } catch (clearError) {
+            console.error('❌ Failed to clear cart after order:', clearError);
+        }
+
+        try {
+            updateCartCount();
+            renderCart();
+        } catch (uiError) {
+            console.warn('⚠️ Failed to update cart UI after order:', uiError);
+        }
+
+        redirectToProfileOrders();
     }
 
     function updateCartCount() {
