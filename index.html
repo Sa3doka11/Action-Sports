@@ -135,6 +135,11 @@
                                         <span class="input-error" data-error-for="signupEmail"></span>
                                     </div>
                                     <div class="input-group">
+                                        <input type="tel" id="signupPhone" name="phone" inputmode="tel" pattern="\d{8,15}" required>
+                                        <label for="signupPhone">رقم الهاتف</label>
+                                        <span class="input-error" data-error-for="signupPhone"></span>
+                                    </div>
+                                    <div class="input-group">
                                         <input type="password" id="signupPassword" name="password" minlength="6" required>
                                         <label for="signupPassword">كلمة المرور</label>
                                         <span class="input-error" data-error-for="signupPassword"></span>
@@ -209,11 +214,27 @@
         <div class="container">
             <div class="row">
                 <div class="col-lg-10 col-offset-lg-1">
-                    <div class="cta-content">
-                        <h2>عرض خاص! <em>خصم 30%</em> على المشاية الكهربائية</h2>
-                        <p>احصل على المشاية الكهربائية الذكية طراز X-25 الآن بخصم حصري. كمية محدودة!</p>
-                        <div class="main-button scroll-to-section">
-                            <a href="#trainers">تسوق الآن</a>
+                    <div class="cta-content" id="homepageBanner">
+                        <div class="cta-banner-layout">
+                            <div class="cta-banner-media">
+                                <img id="homepageBannerImage" src="assets/images/cta-bg.jpg" alt="عرض خاص من أكشن سبورتس">
+                            </div>
+                            <div class="cta-banner-info">
+                                <h2 id="homepageBannerTitle">عرض خاص! <em>خصم 30%</em> على المشاية الكهربائية</h2>
+                                <p id="homepageBannerDescription">احصل على المشاية الكهربائية الذكية طراز X-25 الآن بخصم حصري. كمية محدودة!</p>
+                                <div class="main-button scroll-to-section">
+                                    <a id="homepageBannerCta" href="#trainers">تسوق الآن</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="cta-banner-slider-controls" id="homepageBannerSlider" aria-live="polite">
+                            <button type="button" class="banner-nav-btn" id="homepageBannerPrev" aria-label="العرض السابق">
+                                <i class="fa fa-chevron-right"></i>
+                            </button>
+                            <div class="banner-indicators" id="homepageBannerIndicators" role="tablist"></div>
+                            <button type="button" class="banner-nav-btn" id="homepageBannerNext" aria-label="العرض التالي">
+                                <i class="fa fa-chevron-left"></i>
+                            </button>
                         </div>
                     </div>
                     <!-- Forgot Password Popup -->

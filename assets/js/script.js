@@ -81,7 +81,7 @@ const USER_ENDPOINTS = {
 };
 
 const ORDER_ENDPOINTS = {
-    create: (cartId) => `${API_BASE_HOST}/orders${cartId ? `/${cartId}` : ''}`,
+    create: () => `${API_BASE_HOST}/orders`,
     getAll: () => `${API_BASE_HOST}/orders`,
     getById: (id) => `${API_BASE_HOST}/orders/${id}`,
     getMyOrders: () => `${API_BASE_HOST}/orders/me`,
@@ -89,8 +89,382 @@ const ORDER_ENDPOINTS = {
     cancel: (id) => `${API_BASE_HOST}/orders/${id}/cancel`
 };
 
+const SHIPPING_ENDPOINTS = {
+    zones: `${API_BASE_HOST}/shipping-zones`
+};
+
+const BANNERS_ENDPOINTS = {
+    publicList: `${API_BASE_HOST}/public/banners`,
+    list: `${API_BASE_HOST}/banners`
+};
+
+const homepageBannerState = {
+    banners: [],
+    currentIndex: 0
+};
+
+function normalizePublicBanner(raw = {}, index = 0) {
+    const placement = (raw.placement || raw.position || raw.type || '').toString().toLowerCase();
+    const tags = Array.isArray(raw.tags)
+        ? raw.tags.map(tag => String(tag).toLowerCase())
+        : Array.isArray(raw.labels)
+            ? raw.labels.map(label => String(label).toLowerCase())
+            : [];
+
+    const imageCandidates = [
+        raw.image?.secure_url,
+        raw.image?.url,
+        raw.image?.src,
+        typeof raw.image === 'string' ? raw.image : null,
+        raw.backgroundImage,
+        raw.imageUrl,
+        raw.media?.secure_url,
+        raw.media?.url
+    ];
+
+    const bannerImage = imageCandidates.find(value => typeof value === 'string' && value.trim()) || '';
+
+    return {
+        id: raw._id || raw.id || `banner-${index}`,
+        placement,
+        tags,
+        order: Number(raw.order ?? raw.priority ?? raw.sequence ?? raw.sort ?? index) || index,
+        titleHtml: typeof raw.titleHtml === 'string' && raw.titleHtml.trim() ? raw.titleHtml : '',
+        title: typeof raw.title === 'string' ? raw.title : (typeof raw.heading === 'string' ? raw.heading : ''),
+        subtitle: typeof raw.subtitle === 'string' ? raw.subtitle : (typeof raw.tagline === 'string' ? raw.tagline : ''),
+        description: typeof raw.description === 'string' ? raw.description : (typeof raw.body === 'string' ? raw.body : ''),
+        ctaText: typeof raw.ctaText === 'string' ? raw.ctaText : (typeof raw.buttonText === 'string' ? raw.buttonText : ''),
+        ctaUrl: typeof raw.ctaUrl === 'string' ? raw.ctaUrl : (typeof raw.link === 'string' ? raw.link : ''),
+        ctaTarget: typeof raw.ctaTarget === 'string' ? raw.ctaTarget : (typeof raw.target === 'string' ? raw.target : ''),
+        backgroundImage: bannerImage,
+        accentColor: typeof raw.accentColor === 'string' ? raw.accentColor : (typeof raw.buttonColor === 'string' ? raw.buttonColor : ''),
+        textColor: typeof raw.textColor === 'string' ? raw.textColor : '',
+        overlayColor: typeof raw.overlayColor === 'string' ? raw.overlayColor : '',
+        raw
+    };
+}
+
+function pickHomepageBanner(banners = []) {
+    const keywords = ['cta', 'offer', 'promo', 'home'];
+    if (!Array.isArray(banners)) return null;
+
+    const matchByPlacement = banners.find(banner =>
+        typeof banner.placement === 'string' && keywords.some(keyword => banner.placement.includes(keyword))
+    );
+
+    if (matchByPlacement) return matchByPlacement;
+
+    const matchByTags = banners.find(banner =>
+        Array.isArray(banner.tags) && banner.tags.some(tag => keywords.includes(tag))
+    );
+
+    if (matchByTags) return matchByTags;
+
+    return banners[0] || null;
+}
+
+function getHomepageBannerElements() {
+    return {
+        container: document.getElementById('homepageBanner'),
+        title: document.getElementById('homepageBannerTitle'),
+        description: document.getElementById('homepageBannerDescription'),
+        cta: document.getElementById('homepageBannerCta'),
+        section: document.getElementById('call-to-action'),
+        image: document.getElementById('homepageBannerImage'),
+        indicatorsContainer: document.getElementById('homepageBannerIndicators'),
+        prevButton: document.getElementById('homepageBannerPrev'),
+        nextButton: document.getElementById('homepageBannerNext')
+    };
+}
+
+function applyHomepageBannerToUI(banner) {
+    if (!banner) return;
+    const {
+        container,
+        title,
+        description,
+        cta,
+        section,
+        image
+    } = getHomepageBannerElements();
+
+    const layout = container?.querySelector('.cta-banner-layout');
+    layout?.classList.remove('animate');
+
+    if (title) {
+        if (banner.titleHtml) {
+            title.innerHTML = banner.titleHtml;
+        } else if (banner.title) {
+            title.textContent = banner.title;
+        }
+    }
+
+    if (description) {
+        if (banner.description) {
+            description.textContent = banner.description;
+            description.style.display = '';
+        } else {
+            description.textContent = '';
+            description.style.display = 'none';
+        }
+    }
+
+    if (cta) {
+        if (banner.ctaText) {
+            cta.textContent = banner.ctaText;
+        }
+        if (banner.ctaUrl) {
+            cta.setAttribute('href', banner.ctaUrl);
+        }
+        if (banner.ctaTarget) {
+            cta.setAttribute('target', banner.ctaTarget);
+        } else {
+            cta.removeAttribute('target');
+        }
+
+        if (banner.accentColor) {
+            cta.style.backgroundColor = banner.accentColor;
+            cta.style.borderColor = banner.accentColor;
+        } else {
+            cta.style.backgroundColor = '';
+            cta.style.borderColor = '';
+        }
+    }
+
+    if (image) {
+        if (banner.backgroundImage) {
+            image.src = banner.backgroundImage;
+            const altText = banner.title || banner.description || 'إعلان من أكشن سبورتس';
+            image.alt = altText;
+            image.style.display = 'block';
+        } else {
+            image.src = 'assets/images/cta-bg.jpg';
+            image.alt = 'عرض خاص من أكشن سبورتس';
+        }
+    }
+
+    if (container) {
+        if (banner.textColor) {
+            container.style.color = banner.textColor;
+        } else {
+            container.style.color = '';
+        }
+    }
+
+    if (section) {
+        if (banner.overlayColor) {
+            section.style.backgroundColor = banner.overlayColor;
+            section.style.backgroundImage = '';
+        } else if (banner.backgroundImage) {
+            section.style.backgroundImage = `linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)), url(${banner.backgroundImage})`;
+            section.style.backgroundSize = 'cover';
+            section.style.backgroundPosition = 'center';
+        } else {
+            section.style.backgroundImage = 'url(assets/images/cta-bg.jpg)';
+        }
+    }
+
+    requestAnimationFrame(() => {
+        if (layout) {
+            layout.classList.add('animate');
+        }
+    });
+}
+
+function renderHomepageBannerIndicators(count, activeIndex) {
+    const { indicatorsContainer } = getHomepageBannerElements();
+    if (!indicatorsContainer) return;
+
+    indicatorsContainer.innerHTML = '';
+
+    if (!Number.isInteger(count) || count <= 1) {
+        indicatorsContainer.parentElement?.classList.add('is-single');
+        return;
+    }
+
+    indicatorsContainer.parentElement?.classList.remove('is-single');
+
+    for (let index = 0; index < count; index += 1) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'banner-indicator';
+        button.dataset.index = String(index);
+        button.setAttribute('role', 'tab');
+        button.setAttribute('aria-label', `عرض البانر رقم ${index + 1}`);
+        if (index === activeIndex) {
+            button.classList.add('active');
+            button.setAttribute('aria-selected', 'true');
+        } else {
+            button.setAttribute('aria-selected', 'false');
+        }
+        button.addEventListener('click', () => setHomepageBannerSlide(index));
+        indicatorsContainer.appendChild(button);
+    }
+}
+
+function highlightHomepageBannerIndicator(activeIndex) {
+    const { indicatorsContainer } = getHomepageBannerElements();
+    if (!indicatorsContainer) return;
+    indicatorsContainer.querySelectorAll('.banner-indicator').forEach(button => {
+        const buttonIndex = Number(button.dataset.index);
+        const isActive = buttonIndex === activeIndex;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+}
+
+function setHomepageBannerSlide(index) {
+    if (!Array.isArray(homepageBannerState.banners) || !homepageBannerState.banners.length) {
+        return;
+    }
+
+    const bannersCount = homepageBannerState.banners.length;
+    let nextIndex = index;
+    if (!Number.isInteger(nextIndex)) {
+        nextIndex = 0;
+    }
+
+    nextIndex = (nextIndex + bannersCount) % bannersCount;
+
+    homepageBannerState.currentIndex = nextIndex;
+    const activeBanner = homepageBannerState.banners[nextIndex];
+    applyHomepageBannerToUI(activeBanner);
+    highlightHomepageBannerIndicator(nextIndex);
+}
+
+function setupHomepageBannerSlider(banners) {
+    const { prevButton, nextButton } = getHomepageBannerElements();
+    renderHomepageBannerIndicators(banners.length, homepageBannerState.currentIndex);
+
+    if (!prevButton || !nextButton) {
+        return;
+    }
+
+    const handlePrev = () => {
+        setHomepageBannerSlide(homepageBannerState.currentIndex - 1);
+    };
+
+    const handleNext = () => {
+        setHomepageBannerSlide(homepageBannerState.currentIndex + 1);
+    };
+
+    prevButton.addEventListener('click', handlePrev);
+    nextButton.addEventListener('click', handleNext);
+
+    if (banners.length <= 1) {
+        prevButton.style.display = 'none';
+        nextButton.style.display = 'none';
+    } else {
+        prevButton.style.display = '';
+        nextButton.style.display = '';
+    }
+}
+
+async function loadHomepageBanner() {
+    const container = document.getElementById('homepageBanner');
+    if (!container) return;
+
+    try {
+        const response = await fetchHomepageBannerList();
+        if (!response) {
+            return;
+        }
+        const list = Array.isArray(response?.data)
+            ? response.data
+            : Array.isArray(response)
+                ? response
+                : [];
+
+        if (!list.length) {
+            return;
+        }
+
+        const normalized = list
+            .map(normalizePublicBanner)
+            .sort((a, b) => a.order - b.order);
+
+        if (!normalized.length) {
+            return;
+        }
+
+        homepageBannerState.banners = normalized;
+        homepageBannerState.currentIndex = normalized.indexOf(pickHomepageBanner(normalized));
+        if (homepageBannerState.currentIndex === -1) {
+            homepageBannerState.currentIndex = 0;
+        }
+
+        setHomepageBannerSlide(homepageBannerState.currentIndex);
+        setupHomepageBannerSlider(normalized);
+    } catch (error) {
+        console.error('❌ Failed to hydrate homepage banner:', error);
+    }
+}
+
+async function fetchHomepageBannerList() {
+    const token = typeof getAuthToken === 'function' ? getAuthToken() : null;
+
+    try {
+        return await getJson(BANNERS_ENDPOINTS.list, token);
+    } catch (error) {
+        if (error?.status === 401) {
+            console.warn('⚠️ Unable to load banners without authentication. Showing default banner.');
+            return null;
+        }
+        throw error;
+    }
+}
+
+const shippingZonesState = {
+    list: [],
+    map: new Map(),
+    loaded: false,
+    promise: null
+};
+
+async function loadShippingZones(forceRefresh = false) {
+    if (!forceRefresh) {
+        if (shippingZonesState.loaded) {
+            return shippingZonesState.list;
+        }
+        if (shippingZonesState.promise) {
+            return shippingZonesState.promise;
+        }
+    }
+
+    const token = typeof getAuthToken === 'function' ? getAuthToken() : null;
+
+    const request = getJson(SHIPPING_ENDPOINTS.zones, token)
+        .then(response => {
+            const zones = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+            shippingZonesState.list = zones;
+            shippingZonesState.map = new Map(zones.map(zone => [zone?._id || zone?.id, zone]));
+            shippingZonesState.loaded = true;
+            shippingZonesState.promise = null;
+            return zones;
+        })
+        .catch(error => {
+            shippingZonesState.promise = null;
+            throw error;
+        });
+
+    shippingZonesState.promise = request;
+    return request;
+}
+
+function getShippingZoneById(zoneId) {
+    if (!zoneId) return null;
+    return shippingZonesState.map.get(zoneId) || null;
+}
+
 if (typeof window !== 'undefined') {
     window.ORDER_ENDPOINTS = ORDER_ENDPOINTS;
+    window.SHIPPING_ENDPOINTS = SHIPPING_ENDPOINTS;
+    window.actionSportsShippingZones = {
+        load: loadShippingZones,
+        getAll: () => [...shippingZonesState.list],
+        getById: getShippingZoneById,
+        isLoaded: () => shippingZonesState.loaded
+    };
 }
 
 const CART_ENDPOINTS = {
@@ -1250,6 +1624,8 @@ document.addEventListener('DOMContentLoaded', () => {
     ensureAuthUserLoaded().finally(() => {
         updateAuthUI();
     });
+
+    loadHomepageBanner();
 
     const loginForm = document.getElementById('loginForm');
     if (loginForm) {

@@ -43,39 +43,119 @@ function showCustomAlert(message, type = 'info') {
     });
 }
 
+function formatProfileShippingDisplay(cost) {
+    const numeric = Number(cost);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+        return '—';
+    }
+    if (numeric === 0) {
+        return 'مجاني';
+    }
+    if (typeof renderCurrencyWithIcon === 'function') {
+        return renderCurrencyWithIcon(numeric);
+    }
+    const label = formatProfileShippingCost(numeric);
+    return label || '—';
+}
+
 function buildShippingAddressDisplay(shipping, order, recipientName = '') {
     const addressObject = shipping && typeof shipping === 'object' ? shipping : {};
     const lines = [];
 
+    const resolveAddressText = (value) => {
+        if (value == null) return '';
+        if (typeof value === 'string') return value.trim();
+        if (typeof value === 'number') return String(value);
+        if (Array.isArray(value)) {
+            return value.map(resolveAddressText).filter(Boolean).join(' - ');
+        }
+
+        if (typeof value === 'object') {
+            const zoneIdCandidate = value._id || value.id || value.zoneId || value.regionId || value.shippingZoneId;
+            if (zoneIdCandidate) {
+                const helper = getProfileShippingZonesHelper();
+                const zone = helper?.getById?.(zoneIdCandidate);
+                if (zone && typeof zone === 'object') {
+                    const zoneName = zone.name || zone.displayName || zone.arName || zone.enName;
+                    if (zoneName) {
+                        return String(zoneName).trim();
+                    }
+                }
+            }
+
+            const candidates = [
+                value.name,
+                value.label,
+                value.title,
+                value.displayName,
+                value.arName,
+                value.nameAr,
+                value.nameAR,
+                value.enName,
+                value.nameEn,
+                value.nameEN,
+                value.cityName,
+                value.regionName,
+                value.value
+            ];
+            const resolved = candidates.find(item => item != null && item !== '') || '';
+            return resolveAddressText(resolved);
+        }
+
+        return '';
+    };
+
     const detailCandidates = [
-        addressObject.details,
-        addressObject.addressLine1,
-        addressObject.address,
-        addressObject.line1,
-        addressObject.street,
-        addressObject.addressLine,
-        order?.shippingAddress?.details,
-        order?.shippingAddress?.addressLine1,
-        order?.shippingAddress?.address,
-        order?.shippingAddress?.line1
+        resolveAddressText(addressObject.details),
+        resolveAddressText(addressObject.addressLine1),
+        resolveAddressText(addressObject.address),
+        resolveAddressText(addressObject.line1),
+        resolveAddressText(addressObject.street),
+        resolveAddressText(addressObject.addressLine),
+        resolveAddressText(order?.shippingAddress?.details),
+        resolveAddressText(order?.shippingAddress?.addressLine1),
+        resolveAddressText(order?.shippingAddress?.address),
+        resolveAddressText(order?.shippingAddress?.line1)
     ];
-    const detail = detailCandidates.find(value => value && String(value).trim());
-    if (detail) lines.push(String(detail).trim());
+    const detail = detailCandidates.find(value => value && value.trim());
+    if (detail) lines.push(detail);
 
-    const city = addressObject.city || order?.shippingCity;
-    const region = addressObject.region || addressObject.state || order?.shippingRegion || order?.shippingState;
-    const cityRegion = [city, region]
-        .filter(value => value && String(value).trim())
-        .map(value => String(value).trim())
-        .join('، ');
-    if (cityRegion) lines.push(cityRegion);
+    const cityCandidates = [
+        addressObject.city,
+        order?.shippingCity,
+        order?.shippingAddress?.city,
+        order?.shippingAddress?.shippingCity
+    ];
+    const city = cityCandidates
+        .map(resolveAddressText)
+        .find(value => value && value.trim()) || '';
 
-    const postal = addressObject.postalCode || addressObject.zip || order?.shippingPostalCode || order?.postalCode;
+    const regionCandidates = [
+        addressObject.regionName,
+        order?.shippingAddress?.regionName,
+        addressObject.region,
+        addressObject.state,
+        order?.shippingRegion,
+        order?.shippingState
+    ];
+    const region = regionCandidates
+        .map(resolveAddressText)
+        .find(value => value && value.trim()) || '';
+
+    if (city) {
+        lines.push(city);
+    }
+
+    if (region && region !== city) {
+        lines.push(region);
+    }
+
+    const postal = resolveAddressText(addressObject.postalCode) || resolveAddressText(addressObject.zip) || resolveAddressText(order?.shippingPostalCode) || resolveAddressText(order?.postalCode);
     if (postal) {
         lines.push(`الرمز البريدي: ${postal}`);
     }
 
-    const phone = addressObject.phone || order?.customerPhone || order?.userPhone;
+    const phone = resolveAddressText(addressObject.phone) || resolveAddressText(order?.customerPhone) || resolveAddressText(order?.userPhone);
     if (phone) {
         lines.push(`الهاتف: ${phone}`);
     }
@@ -106,6 +186,219 @@ function translateAddressType(type) {
 // ADDRESSES MANAGEMENT
 // ===================================================================
 
+const profileShippingZonesHelper = typeof window !== 'undefined' ? window.actionSportsShippingZones : null;
+let profileShippingZonesLoadPromise = null;
+
+function getProfileShippingZonesHelper() {
+    return profileShippingZonesHelper && typeof profileShippingZonesHelper === 'object'
+        ? profileShippingZonesHelper
+        : null;
+}
+
+function ensureProfileShippingZonesLoaded(force = false) {
+    const helper = getProfileShippingZonesHelper();
+    if (!helper || typeof helper.load !== 'function') {
+        return Promise.resolve([]);
+    }
+
+    if (force) {
+        profileShippingZonesLoadPromise = null;
+    }
+
+    if (!profileShippingZonesLoadPromise) {
+        profileShippingZonesLoadPromise = helper.load(force).catch(error => {
+            profileShippingZonesLoadPromise = null;
+            throw error;
+        });
+    }
+
+    return profileShippingZonesLoadPromise.then(() => {
+        if (typeof helper.getAll === 'function') {
+            return helper.getAll();
+        }
+        return [];
+    }).catch(error => {
+        console.error('❌ Failed to load profile shipping zones:', error);
+        throw error;
+    });
+}
+
+function getProfileShippingZoneById(zoneId) {
+    const helper = getProfileShippingZonesHelper();
+    if (!helper || typeof helper.getById !== 'function' || !zoneId) {
+        return null;
+    }
+    return helper.getById(zoneId) || null;
+}
+
+function formatProfileShippingCost(cost) {
+    const numeric = Number(cost);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+        return '';
+    }
+    if (numeric === 0) {
+        return 'مجاني';
+    }
+    return typeof formatPrice === 'function' ? `${formatPrice(numeric)} ريال` : `${numeric} ريال`;
+}
+
+function getProfileZoneDisplayName(zone) {
+    if (!zone || typeof zone !== 'object') {
+        return 'مدينة';
+    }
+    const candidates = [
+        zone.name,
+        zone.nameAr,
+        zone.nameAR,
+        zone.nameEn,
+        zone.nameEN,
+        zone.city,
+        zone.title,
+        zone.label,
+        zone.regionName,
+        zone.district,
+        zone.area,
+        zone.governorate
+    ];
+    const name = candidates.find(value => typeof value === 'string' && value.trim());
+    return name ? name.trim() : 'مدينة';
+}
+
+async function populateProfileRegionSelect(selectElement, selectedId = '') {
+    if (!selectElement) return;
+
+    selectElement.disabled = true;
+    selectElement.innerHTML = '<option value="">جاري تحميل المدن...</option>';
+
+    try {
+        const zones = await ensureProfileShippingZonesLoaded();
+        const list = Array.isArray(zones) && zones.length ? zones : (getProfileShippingZonesHelper()?.getAll?.() || []);
+
+        if (!Array.isArray(list) || !list.length) {
+            selectElement.innerHTML = '<option value="">لا توجد مدن متاحة حالياً</option>';
+            return;
+        }
+
+        const options = ['<option value="">اختر المدينة</option>'];
+        list.forEach(zone => {
+            const id = zone?._id || zone?.id;
+            if (!id) return;
+            const displayName = getProfileZoneDisplayName(zone);
+            options.push(`<option value="${id}">${displayName}</option>`);
+        });
+
+        selectElement.innerHTML = options.join('');
+        if (selectedId) {
+            selectElement.value = selectedId;
+        }
+    } catch (error) {
+        console.error('❌ Failed to populate profile shipping regions:', error);
+        selectElement.innerHTML = '<option value="">تعذر تحميل المدن</option>';
+    } finally {
+        selectElement.disabled = false;
+    }
+}
+
+function resolveProfileZoneNameById(zoneId) {
+    if (!zoneId) return '';
+    const helper = getProfileShippingZonesHelper();
+    if (!helper || typeof helper.getById !== 'function') return '';
+    const zone = helper.getById(zoneId);
+    return zone ? getProfileZoneDisplayName(zone) : '';
+}
+
+function normalizeProfileAddress(address) {
+    if (!address || typeof address !== 'object') {
+        return null;
+    }
+
+    const raw = { ...address };
+    const zoneCandidate = raw.shippingZone || raw.region || raw.shippingRegion || raw.zone;
+    let zoneObject = (zoneCandidate && typeof zoneCandidate === 'object') ? zoneCandidate : null;
+    const cityCandidate = typeof raw.city === 'string' ? raw.city.trim() : '';
+
+    const zoneIdCandidates = [
+        raw.regionId,
+        raw.shippingRegionId,
+        raw.shippingZoneId,
+        raw.zoneId,
+        zoneObject?._id,
+        zoneObject?.id,
+        typeof zoneCandidate === 'string' ? zoneCandidate : null
+    ];
+
+    let regionId = zoneIdCandidates.find(value => value != null && value !== '') || null;
+
+    if (!regionId && cityCandidate && /^[a-f0-9]{8,}$/i.test(cityCandidate)) {
+        regionId = cityCandidate;
+    }
+
+    if (!zoneObject && regionId) {
+        zoneObject = getProfileShippingZoneById(regionId);
+        if (zoneObject) {
+            regionId = zoneObject._id || zoneObject.id || regionId;
+        }
+    }
+
+    const zoneFromCache = regionId ? getProfileShippingZoneById(regionId) : null;
+
+    const regionNameCandidates = [
+        raw.regionName,
+        raw.shippingRegionName,
+        typeof raw.region === 'string' ? raw.region : null,
+        typeof raw.shippingRegion === 'string' ? raw.shippingRegion : null,
+        typeof zoneCandidate === 'string' ? zoneCandidate : null,
+        zoneObject?.name,
+        zoneFromCache?.name
+    ];
+
+    const regionName = regionNameCandidates.find(value => typeof value === 'string' && value.trim()) || '';
+
+    const cityDisplayName = cityCandidate && !/^[a-f0-9]{8,}$/i.test(cityCandidate)
+        ? cityCandidate
+        : regionName || zoneFromCache?.name || zoneObject?.name || '';
+
+    const shippingCostCandidates = [
+        raw.shippingCost,
+        raw.shippingPrice,
+        raw.deliveryFee,
+        raw.shippingFee,
+        raw.region?.shippingCost,
+        raw.region?.shippingPrice,
+        raw.shippingRegion?.shippingCost,
+        raw.shippingRegion?.shippingPrice,
+        zoneObject?.shippingCost,
+        zoneObject?.shippingPrice,
+        zoneObject?.price,
+        zoneObject?.cost,
+        zoneFromCache?.shippingCost,
+        zoneFromCache?.shippingPrice,
+        zoneFromCache?.shippingRate,
+        zoneFromCache?.price,
+        zoneFromCache?.cost
+    ];
+
+    let shippingCost = 0;
+    for (const candidate of shippingCostCandidates) {
+        const numeric = Number(candidate);
+        if (Number.isFinite(numeric) && numeric >= 0) {
+            shippingCost = numeric;
+            break;
+        }
+    }
+
+    return {
+        ...raw,
+        regionId: regionId || raw.regionId || null,
+        regionName,
+        region: typeof raw.region === 'string' ? raw.region : (zoneObject?.name || raw.region?.name || regionName || ''),
+        city: cityDisplayName,
+        shippingZone: zoneObject || raw.shippingZone || raw.region || zoneFromCache || null,
+        shippingCost,
+        shippingPrice: shippingCost
+    };
+}
+
 async function loadUserAddresses() {
     const listContainer = document.getElementById('addressesList');
     const emptyState = document.getElementById('addressesEmptyState');
@@ -123,6 +416,12 @@ async function loadUserAddresses() {
     }
 
     try {
+        try {
+            await ensureProfileShippingZonesLoaded();
+        } catch (zoneError) {
+            console.warn('⚠️ Unable to preload shipping zones for profile:', zoneError);
+        }
+
         const response = await getJson(USER_ENDPOINTS.addresses, token);
         const addresses = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
 
@@ -136,7 +435,8 @@ async function loadUserAddresses() {
             return;
         }
 
-        listContainer.innerHTML = addresses.map(renderAddressCard).join('');
+        const normalized = addresses.map(normalizeProfileAddress).filter(Boolean);
+        listContainer.innerHTML = normalized.map(renderAddressCard).join('');
         emptyState.style.display = 'none';
     } catch (error) {
         console.error('❌ Failed to load addresses:', error);
@@ -155,14 +455,36 @@ function renderAddressCard(address) {
     const heading = translateAddressType(type);
     const details = address.details || address.line1 || address.street || '';
     const phone = address.phone || '';
-    const city = address.city || '';
+    const cityIdCandidate = typeof address.city === 'string' && /^[a-f0-9]{8,}$/i.test(address.city) ? address.city : null;
+    const resolvedCityName = cityIdCandidate ? resolveProfileZoneNameById(cityIdCandidate) : '';
+    const cityRaw = (resolvedCityName || address.city || '').trim();
     const postalCode = address.postalCode || '';
+    const regionIdForDisplay = address.regionId
+        || cityIdCandidate
+        || (typeof address.region === 'string' && /^[a-f0-9]{8,}$/i.test(address.region) ? address.region : null)
+        || (typeof address.shippingRegion === 'string' && /^[a-f0-9]{8,}$/i.test(address.shippingRegion) ? address.shippingRegion : null);
+    const resolvedRegionName = regionIdForDisplay ? resolveProfileZoneNameById(regionIdForDisplay) : '';
+    const regionName = resolvedRegionName
+        || address.regionName
+        || (typeof address.region === 'string' ? address.region : address.region?.name)
+        || (typeof address.shippingRegion === 'string' ? address.shippingRegion : address.shippingRegion?.name)
+        || cityRaw
+        || '';
+    const cityDisplay = cityRaw && cityRaw !== regionName ? cityRaw : '';
+    const shippingCost = Number(
+        address.shippingCost ?? address.shippingPrice ??
+        address.region?.shippingCost ?? address.region?.shippingPrice ??
+        address.shippingRegion?.shippingCost ?? address.shippingRegion?.shippingPrice ??
+        address.shippingZone?.shippingCost ?? address.shippingZone?.shippingPrice ??
+        address.shippingZone?.price ?? address.shippingZone?.cost
+    );
 
     const placeholders = {
         details: details || '—',
-        city: city || '—',
         postalCode: postalCode || '—',
-        phone: phone || '—'
+        phone: phone || '—',
+        region: regionName || '—',
+        shipping: formatProfileShippingDisplay(shippingCost)
     };
 
     return `
@@ -178,9 +500,14 @@ function renderAddressCard(address) {
                     <i class="fa fa-map-marker-alt"></i>
                     <span>${placeholders.details}</span>
                 </div>
+                ${cityDisplay ? `<div class="address-line"><i class="fa fa-city"></i><span>${cityDisplay}</span></div>` : ''}
                 <div class="address-line">
-                    <i class="fa fa-city"></i>
-                    <span>${placeholders.city}</span>
+                    <i class="fa fa-map"></i>
+                    <span>${placeholders.region}</span>
+                </div>
+                <div class="address-line">
+                    <i class="fa fa-truck"></i>
+                    <span>${placeholders.shipping}</span>
                 </div>
                 <div class="address-line">
                     <i class="fa fa-mail-bulk"></i>
@@ -251,7 +578,7 @@ function populateAddressesFallbackFromUser(userData) {
     const emptyState = document.getElementById('addressesEmptyState');
     if (!listContainer || !emptyState) return false;
 
-    const address = extractPrimaryAddress(userData);
+    const address = normalizeProfileAddress(extractPrimaryAddress(userData));
     if (!address) return false;
 
     listContainer.innerHTML = renderAddressCard(address);
@@ -314,12 +641,15 @@ function showAddressModal() {
                     </select>
                 </div>
                 <div class="address-form-group">
-                    <label>التفاصيل</label>
-                    <textarea name="details" required></textarea>
+                    <label>المدينة</label>
+                    <select name="regionId" id="profileRegionSelect" required>
+                        <option value="">اختر المدينة</option>
+                    </select>
+                    <small class="field-hint" id="profileRegionHint">اختر المدينة لحساب تكلفة الشحن.</small>
                 </div>
                 <div class="address-form-group">
-                    <label>المدينة</label>
-                    <input type="text" name="city" required>
+                    <label>التفاصيل</label>
+                    <textarea name="details" required></textarea>
                 </div>
                 <div class="address-form-group">
                     <label>الرمز البريدي</label>
@@ -347,6 +677,34 @@ function showAddressModal() {
     });
 
     const form = modal.querySelector('#addressForm');
+    const regionSelect = modal.querySelector('#profileRegionSelect');
+    const regionHint = modal.querySelector('#profileRegionHint');
+
+    const updateRegionHint = (zoneId) => {
+        if (!regionHint) return;
+        if (!zoneId) {
+            regionHint.textContent = 'اختر المدينة لحساب تكلفة الشحن.';
+            return;
+        }
+
+        const zone = getProfileShippingZoneById(zoneId);
+        if (!zone) {
+            regionHint.textContent = 'تعذر تحديد تكلفة الشحن لهذه المدينة حالياً.';
+            return;
+        }
+
+        const label = formatProfileShippingCost(zone?.shippingCost ?? zone?.shippingPrice ?? zone?.shippingRate ?? zone?.price ?? zone?.cost);
+        regionHint.textContent = label ? `تكلفة شحن هذه المنطقة (${label})` : 'لا توجد تكلفة شحن لهذه المدينة.';
+    };
+
+    ensureProfileShippingZonesLoaded().then(() => populateProfileRegionSelect(regionSelect)).catch(() => populateProfileRegionSelect(regionSelect));
+
+    if (regionSelect) {
+        regionSelect.addEventListener('change', () => {
+            updateRegionHint(regionSelect.value);
+        });
+    }
+
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const formData = new FormData(form);
@@ -356,6 +714,8 @@ function showAddressModal() {
             showCustomAlert('يرجى ملء جميع الحقول');
             return;
         }
+
+        updateRegionHint(payload.regionId);
 
         try {
             await addAddress(payload);
@@ -384,10 +744,35 @@ async function addAddress(payload) {
             type: payload.type || 'home',
             details: payload.details,
             phone: payload.phone,
-            city: payload.city,
             postalCode: payload.postalCode,
             token
         };
+
+        if (payload.regionId) {
+            try {
+                await ensureProfileShippingZonesLoaded();
+            } catch (zoneError) {
+                console.warn('⚠️ Unable to refresh shipping zones before saving profile address:', zoneError);
+            }
+
+            body.regionId = payload.regionId;
+            body.shippingRegionId = payload.regionId;
+            body.shippingZoneId = payload.regionId;
+
+            const zone = getProfileShippingZoneById(payload.regionId);
+            if (zone) {
+                const shippingCost = Number(zone.shippingCost ?? zone.shippingPrice ?? zone.price ?? zone.cost) || 0;
+                body.regionName = zone.name;
+                body.shippingRegionName = zone.name;
+                body.shippingZoneName = zone.name;
+                body.region = zone.name;
+                body.city = payload.regionId;
+                body.shippingPrice = shippingCost;
+                body.shippingCost = shippingCost;
+            } else {
+                body.city = payload.regionId;
+            }
+        }
 
         await postJson(USER_ENDPOINTS.addresses, body, token);
         showCustomAlert('تم إضافة العنوان بنجاح!');
@@ -1384,6 +1769,18 @@ async function loadUserOrders() {
                 statusText: response.statusText,
                 body: data
             });
+
+            const messageText = (data?.message || '').toLowerCase();
+            const noOrdersStatuses = [204, 404];
+            const noOrdersMessages = ['no orders', "you didn't create any order", 'لم يتم العثور على طلبات', 'لا يوجد طلبات'];
+            const matchesNoOrdersMessage = noOrdersMessages.some(token => messageText.includes(token));
+
+            if (noOrdersStatuses.includes(response.status) || matchesNoOrdersMessage) {
+                tableBody.innerHTML = renderOrdersEmptyState('لم تقم بأي طلبات بعد.');
+                updateOrderStatsDisplay(0, 0);
+                return;
+            }
+
             throw new Error(data?.message || 'تعذر تحميل الطلبات');
         }
 
@@ -1407,7 +1804,10 @@ async function loadUserOrders() {
         tableBody.innerHTML = orders.map((order, index) => renderOrderRow(order, index)).join('');
     } catch (error) {
         console.error('❌ Failed to load orders:', error);
-        tableBody.innerHTML = renderOrdersEmptyState('حدث خطأ أثناء تحميل الطلبات. يرجى المحاولة لاحقاً.');
+        const messageText = (error.message || '').toLowerCase();
+        const noOrdersMessages = ['no orders', "you didn't create any order", 'لم يتم العثور على طلبات', 'لا يوجد طلبات'];
+        const isNoOrders = noOrdersMessages.some(token => messageText.includes(token));
+        tableBody.innerHTML = renderOrdersEmptyState(isNoOrders ? 'لم تقم بأي طلبات بعد.' : 'حدث خطأ أثناء تحميل الطلبات. يرجى المحاولة لاحقاً.');
         updateOrderStatsDisplay(0, 0);
     }
 }

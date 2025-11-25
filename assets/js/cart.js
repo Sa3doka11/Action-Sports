@@ -8,7 +8,7 @@
     const CHECKOUT_FALLBACK_ADDRESS_ID = 'checkout-fallback-address';
 
     const ORDER_ENDPOINTS = {
-        create: (cartId) => `${API_BASE_HOST}/orders${cartId ? `/${cartId}` : ''}`,
+        create: () => `${API_BASE_HOST}/orders`,
         getAll: () => `${API_BASE_HOST}/orders`,
         getById: (id) => `${API_BASE_HOST}/orders/${id}`,
         getMyOrders: () => `${API_BASE_HOST}/orders/me`,
@@ -212,14 +212,76 @@
 
     function normalizeCheckoutAddress(address) {
         if (!address) return null;
+        const raw = address;
+        const regionObject = address && address.region && typeof address.region === 'object' && address.region !== null ? address.region : null;
+        const shippingZoneObject = address && address.shippingZone && typeof address.shippingZone === 'object' && address.shippingZone !== null ? address.shippingZone : null;
+        const cityCandidate = typeof address.city === 'string' ? address.city.trim() : '';
+
+        let regionId = address.regionId
+            || address.shippingRegionId
+            || address.shippingZoneId
+            || address.zoneId
+            || (regionObject ? (regionObject._id || regionObject.id) : null)
+            || (shippingZoneObject ? (shippingZoneObject._id || shippingZoneObject.id) : null);
+
+        if (!regionId && cityCandidate && /^[a-f0-9]{8,}$/i.test(cityCandidate)) {
+            regionId = cityCandidate;
+        }
+
+        const zoneFromCache = regionId ? getShippingZoneByIdSafe(regionId) : null;
+
+        const regionName = address.regionName
+            || address.shippingRegionName
+            || (typeof address.region === 'string' ? address.region : null)
+            || (typeof address.shippingRegion === 'string' ? address.shippingRegion : null)
+            || (shippingZoneObject ? shippingZoneObject.name : null)
+            || (regionObject ? regionObject.name : null)
+            || zoneFromCache?.name
+            || '';
+
+        const shippingCostCandidates = [
+            address.shippingPrice,
+            address.shippingCost,
+            address.deliveryFee,
+            address.shippingFee,
+            address.region?.shippingPrice,
+            regionObject?.shippingCost,
+            regionObject?.shippingPrice,
+            shippingZoneObject?.shippingPrice,
+            shippingZoneObject?.shippingCost,
+            shippingZoneObject?.price,
+            shippingZoneObject?.cost,
+            zoneFromCache?.shippingPrice,
+            zoneFromCache?.shippingCost,
+            zoneFromCache?.shippingRate,
+            zoneFromCache?.price,
+            zoneFromCache?.cost
+        ];
+
+        let shippingCost = 0;
+        for (const candidate of shippingCostCandidates) {
+            const numeric = Number(candidate);
+            if (Number.isFinite(numeric) && numeric >= 0) {
+                shippingCost = numeric;
+                break;
+            }
+        }
+
         return {
             _id: address._id || address.id || CHECKOUT_FALLBACK_ADDRESS_ID,
             id: address._id || address.id || CHECKOUT_FALLBACK_ADDRESS_ID,
             type: address.type || 'home',
             details: address.details || address.line1 || address.street || '',
-            city: address.city || '',
+            city: (address.city && typeof address.city === 'string' && address.city.trim() && !/^[a-f0-9]{8,}$/i.test(address.city) ? address.city : regionName || ''),
             postalCode: address.postalCode || address.zip || '',
-            phone: address.phone || ''
+            phone: address.phone || '',
+            regionId: regionId || null,
+            region: typeof address.region === 'string' ? address.region : (regionObject?.name || ''),
+            regionName,
+            shippingPrice: shippingCost,
+            shippingCost,
+            shippingZone: shippingZoneObject || regionObject || zoneFromCache || null,
+            raw
         };
     }
 
@@ -274,6 +336,206 @@
 
     function renderCurrencyWithIcon(value) {
         return `${formatCartPrice(value)} ${CURRENCY_ICON_HTML}`;
+    }
+
+    const shippingZonesHelper = typeof window !== 'undefined' ? window.actionSportsShippingZones : null;
+    let shippingZonesLoadPromise = null;
+    let selectedShippingDetails = { cost: 0, zoneId: null, zone: null, regionName: '' };
+
+    function resetSelectedShippingDetails() {
+        selectedShippingDetails = { cost: 0, zoneId: null, zone: null, regionName: '' };
+    }
+
+    function getShippingZonesHelper() {
+        return shippingZonesHelper && typeof shippingZonesHelper === 'object' ? shippingZonesHelper : null;
+    }
+
+    function ensureShippingZonesLoaded(force = false) {
+        const helper = getShippingZonesHelper();
+        if (!helper || typeof helper.load !== 'function') {
+            return Promise.resolve([]);
+        }
+
+        if (force) {
+            shippingZonesLoadPromise = null;
+        }
+
+        if (!shippingZonesLoadPromise) {
+            shippingZonesLoadPromise = helper.load(force).catch(error => {
+                shippingZonesLoadPromise = null;
+                throw error;
+            });
+        }
+
+        return shippingZonesLoadPromise.then(() => {
+            if (typeof helper.getAll === 'function') {
+                return helper.getAll();
+            }
+            return [];
+        }).catch(error => {
+            console.error('❌ Failed to load shipping zones:', error);
+            throw error;
+        });
+    }
+
+    function getShippingZoneByIdSafe(zoneId) {
+        const helper = getShippingZonesHelper();
+        if (!helper || typeof helper.getById !== 'function' || !zoneId) {
+            return null;
+        }
+        return helper.getById(zoneId) || null;
+    }
+
+    function resolveShippingDetails(address) {
+        if (!address || typeof address !== 'object') {
+            return { cost: 0, zoneId: null, zone: null, regionName: '' };
+        }
+
+        const helper = getShippingZonesHelper();
+        const zoneCandidate = address.shippingZone || address.region || address.shippingRegion || address.zone;
+        let zoneObject = (zoneCandidate && typeof zoneCandidate === 'object') ? zoneCandidate : null;
+
+        const zoneIdCandidates = [
+            address.regionId,
+            address.shippingRegionId,
+            address.shippingZoneId,
+            address.zoneId,
+            zoneObject?._id,
+            zoneObject?.id,
+            typeof zoneCandidate === 'string' ? zoneCandidate : null
+        ];
+
+        let zoneId = zoneIdCandidates.find(value => value != null && value !== '') || null;
+
+        if (!zoneObject && zoneId) {
+            zoneObject = getShippingZoneByIdSafe(zoneId);
+            if (zoneObject) {
+                zoneId = zoneObject._id || zoneObject.id || zoneId;
+            }
+        }
+
+        const zoneNameCandidates = [
+            address.regionName,
+            address.shippingRegionName,
+            typeof address.region === 'string' ? address.region : null,
+            typeof address.shippingRegion === 'string' ? address.shippingRegion : null,
+            typeof zoneCandidate === 'string' ? zoneCandidate : null,
+            zoneObject?.name
+        ];
+
+        const regionName = zoneNameCandidates.find(value => typeof value === 'string' && value.trim()) || '';
+
+        const costCandidates = [
+            address.shippingCost,
+            address.shippingPrice,
+            address.deliveryFee,
+            address.shippingFee,
+            address.region?.shippingCost,
+            address.region?.shippingPrice,
+            zoneObject?.shippingCost,
+            zoneObject?.shippingPrice,
+            zoneObject?.shippingRate,
+            zoneObject?.price,
+            zoneObject?.cost
+        ];
+
+        let shippingCost = 0;
+        for (const candidate of costCandidates) {
+            const numeric = Number(candidate);
+            if (Number.isFinite(numeric) && numeric >= 0) {
+                shippingCost = numeric;
+                break;
+            }
+        }
+
+        return {
+            cost: shippingCost,
+            zoneId,
+            zone: zoneObject,
+            regionName: regionName || (zoneObject?.name || '')
+        };
+    }
+
+    function getZoneDisplayName(zone) {
+        if (!zone || typeof zone !== 'object') {
+            return 'مدينة';
+        }
+        const candidates = [
+            zone.name,
+            zone.nameAr,
+            zone.nameAR,
+            zone.nameEn,
+            zone.nameEN,
+            zone.city,
+            zone.title,
+            zone.label,
+            zone.regionName,
+            zone.district,
+            zone.area,
+            zone.governorate
+        ];
+        const name = candidates.find(value => typeof value === 'string' && value.trim());
+        return name ? name.trim() : 'مدينة';
+    }
+
+    function resolveZoneNameById(zoneId) {
+        if (!zoneId) return '';
+        const helper = getShippingZonesHelper();
+        if (!helper || typeof helper.getById !== 'function') return '';
+        const zone = helper.getById(zoneId);
+        return zone ? getZoneDisplayName(zone) : '';
+    }
+
+    function formatShippingOptionCost(cost) {
+        const numeric = Number(cost);
+        if (!Number.isFinite(numeric) || numeric < 0) {
+            return '';
+        }
+        if (numeric === 0) {
+            return 'مجاني';
+        }
+        if (typeof formatPrice === 'function') {
+            return `${formatPrice(numeric)} ريال`;
+        }
+        return `${numeric} ريال`;
+    }
+
+    async function populateCheckoutRegionSelect(selectElement, selectedId = '') {
+        if (!selectElement) return;
+
+        selectElement.disabled = true;
+        selectElement.innerHTML = '<option value="">جاري تحميل المدن...</option>';
+
+        try {
+            const zones = await ensureShippingZonesLoaded();
+            const list = Array.isArray(zones) && zones.length ? zones : (getShippingZonesHelper()?.getAll?.() || []);
+
+            if (!Array.isArray(list) || !list.length) {
+                selectElement.innerHTML = '<option value="">لا توجد مدن متاحة حالياً</option>';
+                return;
+            }
+
+            const options = ['<option value="">اختر المدينة</option>'];
+            list.forEach(zone => {
+                const id = zone?._id || zone?.id;
+                if (!id) return;
+                const displayName = getZoneDisplayName(zone);
+                options.push(`<option value="${id}">${displayName}</option>`);
+            });
+
+            selectElement.innerHTML = options.join('');
+            if (selectedId) {
+                selectElement.value = selectedId;
+            }
+        } catch (error) {
+            console.error('❌ Failed to populate shipping regions select:', error);
+            selectElement.innerHTML = '<option value="">تعذر تحميل المدن</option>';
+            if (typeof showToast === 'function') {
+                showToast('تعذر تحميل مدن الشحن. يرجى المحاولة لاحقاً.', 'error');
+            }
+        } finally {
+            selectElement.disabled = false;
+        }
     }
 
     function renderCart() {
@@ -373,6 +635,10 @@
                         <span>المجموع الفرعي:</span>
                         <span>${renderCurrencyWithIcon(subtotal)}</span>
                     </div>
+                    <div class="summary-row" id="orderShippingRow" style="display: none;">
+                        <span id="orderShippingLabel">مصاريف الشحن:</span>
+                        <span class="price" id="orderShippingValue"></span>
+                    </div>
                     <div class="summary-row total">
                         <span>الإجمالي:</span>
                         <span class="price" id="orderTotalValue">${renderCurrencyWithIcon(total)}</span>
@@ -391,6 +657,10 @@
                         </div>
                         <div class="addresses-empty" id="checkoutAddressesEmpty" style="display: none;">
                             لا توجد عناوين محفوظة بعد. يرجى إضافة عنوان جديد للمتابعة.
+                        </div>
+                        <div class="checkout-shipping-info" id="checkoutShippingInfo" style="display: none;">
+                            <i class="fa fa-truck"></i>
+                            <span id="checkoutShippingInfoText"></span>
                         </div>
                         <div class="address-selection-actions">
                             <button type="button" class="action-btn primary" id="addCheckoutAddressBtn">
@@ -443,6 +713,7 @@
         `;
 
         bindCartInteractions(container);
+        updateSummaryTotals();
     }
 
     function bindCartInteractions(container) {
@@ -501,6 +772,10 @@
             checkoutButton.style.display = 'none';
         }
 
+        ensureShippingZonesLoaded().catch(error => {
+            console.warn('⚠️ Unable to preload shipping zones:', error);
+        });
+
         if (!checkoutAddressesLoaded) {
             loadCheckoutAddresses();
         }
@@ -518,6 +793,7 @@
 
         list.innerHTML = '<div class="addresses-loading"><i class="fa fa-spinner fa-spin"></i> جاري تحميل العناوين...</div>';
         emptyState.style.display = 'none';
+        resetSelectedShippingDetails();
 
         const token = getAuthTokenSafe();
         if (!token) {
@@ -528,12 +804,21 @@
         }
 
         try {
+            try {
+                await ensureShippingZonesLoaded(forceRefresh);
+            } catch (zoneError) {
+                console.warn('⚠️ Failed to refresh shipping zones:', zoneError);
+            }
+
             const response = await getJson(USER_ENDPOINTS.addresses, token);
             const addresses = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+            const normalized = addresses
+                .map(normalizeCheckoutAddress)
+                .filter(Boolean);
 
-            checkoutAddressesCache = addresses;
+            checkoutAddressesCache = normalized;
             checkoutAddressesLoaded = true;
-            renderCheckoutAddresses(addresses);
+            renderCheckoutAddresses(normalized);
         } catch (error) {
             console.error('❌ Failed to load checkout addresses:', error);
             const hydrated = populateCheckoutAddressesFallbackFromStoredUser();
@@ -541,6 +826,8 @@
                 list.innerHTML = '';
                 emptyState.textContent = error.message || 'حدث خطأ أثناء تحميل العناوين. يرجى المحاولة مرة أخرى.';
                 emptyState.style.display = 'block';
+                resetSelectedShippingDetails();
+                updateSummaryTotals();
             }
         }
     }
@@ -551,24 +838,33 @@
         const confirmBtn = document.getElementById('confirmOrderButton');
         if (!list || !emptyState) return;
 
-        if (!Array.isArray(addresses) || !addresses.length) {
+        const previousSelectedId = selectedCheckoutAddressId;
+        const normalized = Array.isArray(addresses)
+            ? addresses.map(address => (address && address.shippingDetails ? address : normalizeCheckoutAddress(address))).filter(Boolean)
+            : [];
+
+        checkoutAddressesCache = normalized;
+
+        if (!normalized.length) {
             const hydrated = populateCheckoutAddressesFallbackFromStoredUser();
             if (!hydrated) {
                 list.innerHTML = '';
                 emptyState.style.display = 'block';
                 selectedCheckoutAddressId = null;
                 if (confirmBtn) confirmBtn.disabled = true;
+                resetSelectedShippingDetails();
+                updateSummaryTotals();
             }
             return;
         }
 
         emptyState.style.display = 'none';
 
-        if (!selectedCheckoutAddressId) {
-            selectedCheckoutAddressId = addresses[0]?._id || addresses[0]?.id || null;
+        if (!previousSelectedId || !normalized.some(address => isSameAddress(address, previousSelectedId))) {
+            selectedCheckoutAddressId = normalized[0]?._id || normalized[0]?.id || null;
         }
 
-        list.innerHTML = addresses.map(address => renderCheckoutAddressCard(address, isSameAddress(address, selectedCheckoutAddressId))).join('');
+        list.innerHTML = normalized.map(address => renderCheckoutAddressCard(address, isSameAddress(address, selectedCheckoutAddressId))).join('');
 
         list.querySelectorAll('input[name="selectedAddress"]').forEach(radio => {
             radio.addEventListener('change', () => {
@@ -585,9 +881,25 @@
         const id = address?._id || address?.id || '';
         const typeLabel = translateAddressType(address?.type || 'home');
         const details = address?.details || address?.line1 || address?.street || '—';
-        const city = address?.city || '—';
         const postal = address?.postalCode || address?.zip || '—';
         const phone = address?.phone || '—';
+        const regionIdForDisplay = address?.regionId
+            || (typeof address?.city === 'string' && /^[a-f0-9]{8,}$/i.test(address.city) ? address.city : null)
+            || (typeof address?.region === 'string' && /^[a-f0-9]{8,}$/i.test(address.region) ? address.region : null);
+        const resolvedRegionName = resolveZoneNameById(regionIdForDisplay);
+        const region = resolvedRegionName || address?.regionName || address?.region || address?.city || '—';
+        const cityRaw = (address?.city || '').trim();
+        const cityDisplay = cityRaw && cityRaw !== region ? cityRaw : '';
+        const shippingSource = address?.shippingDetails || resolveShippingDetails(address);
+        const shippingCostValue = Number(
+            (shippingSource && shippingSource.cost != null ? shippingSource.cost : undefined)
+            ?? address?.shippingCost
+            ?? address?.shippingPrice
+        );
+        let shippingDisplay = '—';
+        if (Number.isFinite(shippingCostValue)) {
+            shippingDisplay = shippingCostValue === 0 ? 'مجاني' : renderCurrencyWithIcon(shippingCostValue);
+        }
 
         return `
             <label class="checkout-address-card ${selected ? 'selected' : ''}" data-address-id="${id}">
@@ -598,7 +910,9 @@
                     </div>
                     <div class="checkout-address-lines">
                         <div class="address-line"><i class="fa fa-map-marker-alt"></i><span>${details}</span></div>
-                        <div class="address-line"><i class="fa fa-city"></i><span>${city}</span></div>
+                        ${cityDisplay ? `<div class="address-line"><i class="fa fa-city"></i><span>${cityDisplay}</span></div>` : ''}
+                        <div class="address-line"><i class="fa fa-map"></i><span>${region}</span></div>
+                        <div class="address-line"><i class="fa fa-truck"></i><span>${shippingDisplay}</span></div>
                         <div class="address-line"><i class="fa fa-mail-bulk"></i><span>${postal}</span></div>
                         <div class="address-line"><i class="fa fa-phone"></i><span>${phone}</span></div>
                     </div>
@@ -612,15 +926,63 @@
         return addressId && id && String(addressId) === String(id);
     }
 
+    function getSelectedCheckoutAddress() {
+        if (!selectedCheckoutAddressId) {
+            return null;
+        }
+        return checkoutAddressesCache.find(address => isSameAddress(address, selectedCheckoutAddressId)) || null;
+    }
+
+    function updateCheckoutShippingInfoUI(address, shippingCost) {
+        const infoContainer = document.getElementById('checkoutShippingInfo');
+        const infoText = document.getElementById('checkoutShippingInfoText');
+
+        if (!infoContainer || !infoText) {
+            return;
+        }
+
+        if (!address) {
+            infoText.textContent = '';
+            infoContainer.style.display = 'none';
+            return;
+        }
+
+        let cost = Number(shippingCost);
+        if (!Number.isFinite(cost) || cost < 0) {
+            cost = Number(selectedShippingDetails?.cost);
+        }
+
+        const effectiveRegionName = selectedShippingDetails?.regionName
+            || address.regionName
+            || address.region
+            || resolveZoneNameById(selectedShippingDetails?.zoneId || address.regionId)
+            || '';
+
+        let costLabel = '—';
+        if (Number.isFinite(cost)) {
+            if (cost === 0) {
+                costLabel = 'مجاني';
+            } else if (cost > 0) {
+                costLabel = renderCurrencyWithIcon(cost);
+            }
+        }
+
+        const regionSuffix = effectiveRegionName ? ` (${effectiveRegionName})` : '';
+        infoText.innerHTML = `تكلفة الشحن${regionSuffix}: ${costLabel}`;
+        infoContainer.style.display = 'flex';
+    }
+
     function highlightSelectedAddress() {
         const cards = document.querySelectorAll('.checkout-address-card');
         const confirmBtn = document.getElementById('confirmOrderButton');
+        let activeAddress = null;
         cards.forEach(card => {
             const id = card.dataset.addressId;
             if (id && String(id) === String(selectedCheckoutAddressId)) {
                 card.classList.add('selected');
                 const radio = card.querySelector('input[type="radio"]');
                 if (radio) radio.checked = true;
+                activeAddress = checkoutAddressesCache.find(address => isSameAddress(address, id)) || null;
             } else {
                 card.classList.remove('selected');
             }
@@ -629,6 +991,21 @@
         if (confirmBtn) {
             confirmBtn.disabled = !selectedCheckoutAddressId;
         }
+
+        if (activeAddress) {
+            const shippingDetails = activeAddress.shippingDetails || resolveShippingDetails(activeAddress);
+            activeAddress.shippingDetails = shippingDetails;
+            selectedShippingDetails = {
+                cost: Number(shippingDetails?.cost ?? activeAddress.shippingCost ?? activeAddress.shippingPrice) || 0,
+                zoneId: shippingDetails?.zoneId || activeAddress.regionId || selectedShippingDetails.zoneId,
+                zone: shippingDetails?.zone || activeAddress.shippingZone || null,
+                regionName: shippingDetails?.regionName || activeAddress.regionName || activeAddress.region || selectedShippingDetails.regionName || ''
+            };
+        } else {
+            resetSelectedShippingDetails();
+        }
+
+        updateSummaryTotals();
     }
 
     function openCheckoutAddressModal() {
@@ -650,12 +1027,15 @@
                         </select>
                     </div>
                     <div class="address-form-group">
-                        <label>تفاصيل العنوان</label>
-                        <textarea name="details" rows="3" required placeholder="مثل: الشارع، رقم المنزل، العلامات المميزة"></textarea>
+                        <label>المدينة</label>
+                        <select name="regionId" id="checkoutRegionSelect" required>
+                            <option value="">اختر المدينة</option>
+                        </select>
+                        <small class="field-hint" id="checkoutRegionHint">اختر المدينة لحساب تكلفة الشحن.</small>
                     </div>
                     <div class="address-form-group">
-                        <label>المدينة</label>
-                        <input type="text" name="city" required placeholder="القاهرة">
+                        <label>تفاصيل العنوان</label>
+                        <textarea name="details" rows="3" required placeholder="مثل: الشارع، رقم المنزل، العلامات المميزة"></textarea>
                     </div>
                     <div class="address-form-group">
                         <label>الرمز البريدي</label>
@@ -683,12 +1063,49 @@
         });
 
         const form = modal.querySelector('#checkoutAddressForm');
+        const regionSelect = modal.querySelector('#checkoutRegionSelect');
+        const regionHint = modal.querySelector('#checkoutRegionHint');
+
+        const updateRegionHint = (zoneId) => {
+            if (!regionHint) return;
+            if (!zoneId) {
+                regionHint.textContent = 'اختر المدينة لحساب تكلفة الشحن.';
+                return;
+            }
+
+            const zone = getShippingZoneByIdSafe(zoneId);
+            if (!zone) {
+                regionHint.textContent = 'تعذر تحديد تكلفة الشحن لهذه المنطقة حالياً.';
+                return;
+            }
+
+            const costLabel = formatShippingOptionCost(zone?.shippingCost ?? zone?.shippingPrice ?? zone?.shippingRate ?? zone?.price ?? zone?.cost);
+            regionHint.textContent = costLabel
+                ? `تكلفة شحن هذه المنطقة (${costLabel})`
+                : 'لا توجد تكلفة شحن لهذه المنطقة.';
+        };
+
+        if (regionSelect) {
+            populateCheckoutRegionSelect(regionSelect)
+                .then(() => {
+                    updateRegionHint(regionSelect.value);
+                })
+                .catch(error => {
+                    console.error('❌ Failed to populate regions in checkout modal:', error);
+                    updateRegionHint('');
+                });
+
+            regionSelect.addEventListener('change', () => {
+                updateRegionHint(regionSelect.value);
+            });
+        }
+
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
             const formData = new FormData(form);
             const payload = Object.fromEntries(Array.from(formData.entries()).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]));
 
-            if (!payload.details || !payload.city || !payload.phone) {
+            if (!payload.regionId || !payload.details || !payload.phone) {
                 showToast('يرجى ملء كافة الحقول المطلوبة.', 'warning');
                 return;
             }
@@ -717,10 +1134,12 @@
             return;
         }
 
+        const zoneId = payload.regionId || '';
+
         const body = {
             type: payload.type || 'home',
             details: payload.details,
-            city: payload.city,
+            city: zoneId || '', // backend expects region ID here
             postalCode: payload.postalCode || '',
             phone: payload.phone,
             token
@@ -806,15 +1225,67 @@
 
     function updateSummaryTotals() {
         const totalValue = document.getElementById('orderTotalValue');
+        const shippingRow = document.getElementById('orderShippingRow');
+        const shippingValue = document.getElementById('orderShippingValue');
 
         const state = getCartStateSafe();
-        const subtotal = Number(state.totals?.subtotal) || 0;
-        const shipping = 0;
-        const total = state.totals?.total || subtotal;
+        const items = Array.isArray(state.items) ? state.items : [];
+
+        let subtotal = Number(state.totals?.subtotal);
+        if (!Number.isFinite(subtotal) || subtotal < 0) {
+            subtotal = items.reduce((sum, item) => {
+                const price = Number(item?.price) || 0;
+                const quantity = Number(item?.quantity) || 0;
+                return sum + (price * quantity);
+            }, 0);
+        }
+
+        const selectedAddress = getSelectedCheckoutAddress();
+        const selectedShippingCost = Number(selectedShippingDetails?.cost);
+        const stateShipping = Number(
+            state.totals?.shippingPrice ??
+            state.totals?.shipping ??
+            state.totals?.shippingCost ??
+            state.shippingPrice
+        );
+
+        let shipping = 0;
+        if (selectedAddress && Number.isFinite(selectedShippingCost) && selectedShippingCost >= 0) {
+            shipping = selectedShippingCost;
+        } else if (Number.isFinite(stateShipping) && stateShipping >= 0) {
+            shipping = stateShipping;
+        }
+
+        const shouldShowShipping = Boolean(selectedAddress) || (Number.isFinite(shipping) && shipping > 0);
+
+        if (shippingRow) {
+            shippingRow.style.display = shouldShowShipping ? 'flex' : 'none';
+        }
+
+        if (shouldShowShipping && shippingValue) {
+            if (shipping === 0) {
+                shippingValue.textContent = 'مجاني';
+            } else if (Number.isFinite(shipping) && shipping > 0) {
+                shippingValue.innerHTML = renderCurrencyWithIcon(shipping);
+            } else {
+                shippingValue.textContent = '—';
+            }
+        } else if (shippingValue) {
+            shippingValue.textContent = '';
+        }
+
+        const declaredTotal = Number(state.totals?.total);
+        let total = subtotal + (Number.isFinite(shipping) && shipping > 0 ? shipping : 0);
+
+        if (!selectedAddress && (!Number.isFinite(shipping) || shipping < 0) && Number.isFinite(declaredTotal) && declaredTotal > 0) {
+            total = declaredTotal;
+        }
 
         if (totalValue) {
             totalValue.innerHTML = renderCurrencyWithIcon(total);
         }
+
+        updateCheckoutShippingInfoUI(selectedAddress, shipping);
     }
 
     function getAuthTokenSafe() {
@@ -866,12 +1337,30 @@
 
     function buildOrderPayload(selectedAddress, selectedPaymentMethod, state, user, installmentProvider) {
         const subtotal = Number(state.totals?.subtotal) || 0;
+        const addressShippingDetails = selectedAddress?.shippingDetails || resolveShippingDetails(selectedAddress);
+        const effectiveShippingDetails = {
+            cost: Number(addressShippingDetails?.cost ?? selectedShippingDetails.cost) || 0,
+            zoneId: addressShippingDetails?.zoneId || selectedShippingDetails.zoneId || selectedAddress?.regionId || null,
+            zone: addressShippingDetails?.zone || selectedShippingDetails.zone || null,
+            regionName: addressShippingDetails?.regionName || selectedShippingDetails.regionName || selectedAddress?.regionName || selectedAddress?.region || ''
+        };
+
+        const regionIdForBackend =
+            effectiveShippingDetails.zoneId ||
+            selectedAddress?.regionId ||
+            selectedAddress?.raw?.regionId ||
+            selectedAddress?.raw?.shippingRegionId ||
+            selectedAddress?.raw?.shippingZoneId ||
+            selectedAddress?.raw?.zoneId ||
+            (typeof selectedAddress?.raw?.city === 'string' ? selectedAddress.raw.city : null) ||
+            (typeof selectedAddress?.city === 'string' && /^[a-f0-9]{8,}$/i.test(selectedAddress.city) ? selectedAddress.city : null) ||
+            null;
 
         const payload = {
             paymentMethod: selectedPaymentMethod || CASH_PAYMENT_METHOD,
-            shippingPrice: 0,
+            shippingPrice: effectiveShippingDetails.cost,
             taxPrice: 0,
-            totalOrderPrice: subtotal,
+            totalOrderPrice: subtotal + effectiveShippingDetails.cost,
             cartItems: state.items.map(item => ({
                 productId: item.productId || item.id,
                 quantity: item.quantity,
@@ -907,13 +1396,27 @@
                 addressLine1: addressDetails,
                 address: addressDetails,
                 line1: addressDetails,
-                city: selectedAddress.city || '',
-                region: selectedAddress.region || selectedAddress.state || '',
+                city: regionIdForBackend || '',
+                region: effectiveShippingDetails.regionName || selectedAddress.region || selectedAddress.state || '',
+                regionId: effectiveShippingDetails.zoneId || selectedAddress.regionId || null,
+                regionName: effectiveShippingDetails.regionName || selectedAddress.regionName || '',
                 postalCode: selectedAddress.postalCode || selectedAddress.zip || '',
                 phone: selectedAddress.phone || user?.phone || '',
                 recipientName: payload.customerName,
-                name: payload.customerName
+                name: payload.customerName,
+                shippingZoneId: effectiveShippingDetails.zoneId || null,
+                shippingPrice: payload.shippingPrice,
+                shippingCost: payload.shippingPrice
             };
+        }
+
+        if (effectiveShippingDetails.zoneId) {
+            payload.shippingRegionId = effectiveShippingDetails.zoneId;
+            payload.shippingZoneId = effectiveShippingDetails.zoneId;
+        }
+
+        if (effectiveShippingDetails.regionName) {
+            payload.shippingRegionName = effectiveShippingDetails.regionName;
         }
 
         if (payload.paymentMethod === 'installment' && installmentProvider) {
@@ -926,13 +1429,11 @@
         return payload;
     }
 
-    async function postOrderRequest(payload, token, cartId) {
-        if (!cartId) {
-            throw new Error('Cart ID is required to create an order');
-        }
+    async function postOrderRequest(payload, token) {
+        const endpoint = ORDER_ENDPOINTS.create();
 
         console.log('🚀 Sending order to backend...');
-        console.log('📍 Endpoint:', ORDER_ENDPOINTS.create(cartId));
+        console.log('📍 Endpoint:', endpoint);
         console.log('🔑 Token:', token ? 'Present' : 'Missing');
         console.log('📦 Payload:', payload);
 
@@ -946,7 +1447,7 @@
             headers['token'] = token; // Some backends use this
         }
 
-        const response = await fetch(ORDER_ENDPOINTS.create(cartId), {
+        const response = await fetch(endpoint, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify(payload)
@@ -980,7 +1481,7 @@
             return initiatePayTabsPayment({ payload, token, cartId });
         }
 
-        const orderResponse = await postOrderRequest(payload, token, cartId);
+        const orderResponse = await postOrderRequest(payload, token);
         return {
             message: orderResponse?.message || orderResponse?.data?.message,
             data: orderResponse
@@ -1117,6 +1618,18 @@
             showToast('لم يتم العثور على العنوان المحدد.', 'error');
             return;
         }
+
+        if (!selectedAddress.shippingDetails) {
+            selectedAddress.shippingDetails = resolveShippingDetails(selectedAddress);
+        }
+        const refreshedShipping = selectedAddress.shippingDetails || resolveShippingDetails(selectedAddress);
+        selectedShippingDetails = {
+            cost: Number(refreshedShipping?.cost ?? selectedShippingDetails.cost) || 0,
+            zoneId: refreshedShipping?.zoneId || selectedAddress.regionId || selectedShippingDetails.zoneId,
+            zone: refreshedShipping?.zone || selectedAddress.shippingZone || selectedShippingDetails.zone,
+            regionName: refreshedShipping?.regionName || selectedAddress.regionName || selectedAddress.region || selectedShippingDetails.regionName || ''
+        };
+        updateSummaryTotals();
 
         const paymentSelect = document.getElementById('checkoutPaymentMethod');
         if (!paymentSelect) {
@@ -1299,6 +1812,10 @@
     });
 
     // Export functions for external use
+    function submitOrder(event) {
+        return submitOrderWithSelectedAddress(event);
+    }
+
     window.actionSportsOrders = {
         getCartIdSafe,
         submitOrder,
