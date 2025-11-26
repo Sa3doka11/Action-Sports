@@ -1577,11 +1577,70 @@
             return initiatePayTabsPayment({ payload, token, cartId });
         }
 
+        if (paymentMethod === 'installment') {
+            const provider = payload?.paymentDetails?.provider;
+            if (!provider) {
+                throw new Error('يرجى اختيار مقدم خدمة التقسيط.');
+            }
+
+            const installmentRedirect = resolveInstallmentRedirect(provider, payload, cartId);
+            if (!installmentRedirect) {
+                throw new Error('لا يوجد مسار متاح لمقدم خدمة التقسيط المختار.');
+            }
+
+            return { redirectUrl: installmentRedirect };
+        }
+
         const orderResponse = await postOrderRequest(payload, token);
         return {
             message: orderResponse?.message || orderResponse?.data?.message,
             data: orderResponse
         };
+    }
+
+    function resolveInstallmentRedirect(provider, payload, cartId) {
+        const baseUrl = window.location.origin || '';
+        const summary = {
+            provider,
+            cartId,
+            total: payload?.totalOrderPrice,
+            shipping: payload?.shippingPrice,
+            installation: payload?.installationPrice,
+            items: Array.isArray(payload?.cartItems) ? payload.cartItems.map(item => ({
+                productId: item.productId,
+                quantity: item.quantity,
+                price: item.price
+            })) : []
+        };
+
+        const summaryJson = JSON.stringify(summary);
+        let stored = false;
+        try {
+            if (typeof sessionStorage !== 'undefined') {
+                sessionStorage.setItem('actionSportsInstallmentSummary', summaryJson);
+                stored = true;
+            }
+        } catch (storageError) {
+            console.warn('⚠️ Failed to persist installment summary:', storageError);
+        }
+
+        let relativePath = null;
+        if (provider === 'tabby') {
+            relativePath = './installments/tabby.html';
+        } else if (provider === 'tamara') {
+            relativePath = './installments/tamara.html';
+        }
+
+        if (!relativePath) {
+            return null;
+        }
+
+        const targetUrl = new URL(relativePath, window.location.href);
+        if (!stored) {
+            targetUrl.searchParams.set('summary', encodeURIComponent(summaryJson));
+        }
+
+        return targetUrl.toString();
     }
 
     async function initiatePayTabsPayment({ payload, token, cartId }) {
@@ -1808,6 +1867,11 @@
 
             if (handlingResult?.redirectUrl) {
                 window.location.href = handlingResult.redirectUrl;
+                return;
+            }
+
+            if (selectedPaymentMethod === 'installment') {
+                window.location.href = '/installment-provider-selection';
                 return;
             }
 

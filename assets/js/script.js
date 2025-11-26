@@ -875,11 +875,85 @@ function normalizeCartSnapshot(payload) {
         return normalizedItem;
     });
 
-    const totals = computeCartTotals(items, {
-        subtotal: cartData?.subtotal ?? cartData?.totalPrice ?? cartData?.total ?? payload?.subtotal ?? payload?.total,
-        shipping: cartData?.shipping ?? cartData?.shippingCost ?? payload?.shipping,
-        installationPrice: cartData?.installationPrice ?? cartData?.installation ?? cartData?.installationFee ?? payload?.installationPrice ?? payload?.installation
-    });
+    const fallbackTotals = computeCartTotals(items);
+
+    const subtotalOverride = Number(
+        sanitizePrice(
+            cartData?.subtotal ??
+            cartData?.subTotal ??
+            cartData?.totalPrice ??
+            payload?.subtotal ??
+            payload?.subTotal
+        )
+    );
+
+    const shippingOverride = Number(
+        sanitizePrice(
+            cartData?.shipping ??
+            cartData?.shippingCost ??
+            cartData?.shippingPrice ??
+            payload?.shipping ??
+            payload?.shippingPrice
+        )
+    );
+
+    const installationOverride = Number(
+        sanitizePrice(
+            cartData?.installationPrice ??
+            cartData?.installation ??
+            cartData?.installationFee ??
+            cartData?.installation_price ??
+            payload?.installationPrice ??
+            payload?.installation
+        )
+    );
+
+    const subtotalTolerance = Math.max(0.5, fallbackTotals.subtotal * 0.01);
+    let subtotal = fallbackTotals.subtotal;
+    if (Number.isFinite(subtotalOverride) && subtotalOverride >= 0) {
+        const diff = Math.abs(subtotalOverride - fallbackTotals.subtotal);
+        if (fallbackTotals.subtotal === 0 || diff <= subtotalTolerance) {
+            subtotal = subtotalOverride;
+        }
+    }
+
+    let shipping = fallbackTotals.shipping;
+    if (Number.isFinite(shippingOverride) && shippingOverride >= 0) {
+        shipping = shippingOverride;
+    }
+
+    let installationPrice = fallbackTotals.installationPrice;
+    if (Number.isFinite(installationOverride) && installationOverride >= 0) {
+        installationPrice = installationOverride;
+    }
+
+    const computedTotal = subtotal + shipping + installationPrice;
+
+    const declaredTotal = Number(
+        sanitizePrice(
+            cartData?.total ??
+            cartData?.totalValue ??
+            cartData?.grandTotal ??
+            payload?.total ??
+            payload?.totalPrice
+        )
+    );
+
+    const totalTolerance = Math.max(0.5, computedTotal * 0.01);
+    let total = computedTotal;
+    if (Number.isFinite(declaredTotal) && declaredTotal >= 0) {
+        const diff = Math.abs(declaredTotal - computedTotal);
+        if (computedTotal === 0 || diff <= totalTolerance) {
+            total = declaredTotal;
+        }
+    }
+
+    const totals = {
+        subtotal,
+        shipping,
+        installationPrice,
+        total
+    };
 
     const cartId = cartData?._id || cartData?.id || dataRoot?.cartId || dataRoot?.id || payload?.cartId || null;
 
