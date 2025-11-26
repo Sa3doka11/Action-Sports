@@ -172,7 +172,8 @@
             await addProductToCartShared(product.id, 1, {
                 name: product.name,
                 price: product.price,
-                image: product.image
+                image: product.image,
+                installationPrice: Number(product.installationPrice) || 0
             });
 
             if (typeof window.__actionSportsProductMetadata__?.set === 'function') {
@@ -251,7 +252,7 @@
     // ================================================================
     // 4. Setup Add to Cart Button
     // ================================================================
-    // Wire add-to-cart button within details page
+    // Wire     add-to-cart button within details page
     function setupAddToCartButton() {
         const addToCartBtn = document.getElementById('addToCartBtn');
         if (!addToCartBtn) return;
@@ -451,6 +452,14 @@
             rawProduct.recommendedUse
         );
 
+        const rawInstallation =
+            rawProduct.installationPrice ??
+            rawProduct.installation_price ??
+            rawProduct.installationFee ??
+            rawProduct.details?.installationPrice ??
+            rawProduct.details?.installation_fee;
+        const installationPrice = Number.isFinite(Number(rawInstallation)) ? Number(rawInstallation) : 0;
+
         const warrantyInfo = mergeStringLists(
             rawProduct.warranty,
             rawProduct.warrantyInfo,
@@ -481,6 +490,7 @@
             usage,
             warrantyInfo,
             deliveryInfo,
+            installationPrice,
             brand: normalizeBrand(rawProduct)
         };
     }
@@ -533,7 +543,8 @@
                         window.__actionSportsProductMetadata__.set(product.id, {
                             name: product.name,
                             price: product.price,
-                            image: product.image
+                            image: product.image,
+                            installationPrice: Number(product.installationPrice) || 0
                         });
                     }
                     return product;

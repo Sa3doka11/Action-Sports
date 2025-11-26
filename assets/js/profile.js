@@ -1377,6 +1377,41 @@ function renderOrderDetails(order) {
         return (unitPrice || 0) * quantity;
     };
 
+    const resolveUnitInstallation = (item) => {
+        const candidates = [
+            item.installationPrice,
+            item.installation_price,
+            item.installationFee,
+            item.installation_fee,
+            item.installation,
+            item.product?.installationPrice,
+            item.product?.installationFee,
+            item.product?.installation
+        ];
+        const value = candidates.find(candidate => candidate != null);
+        const numeric = Number(value);
+        return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0;
+    };
+
+    const resolveInstallationTotal = (item, quantity, unitInstallation) => {
+        const candidates = [
+            item.installationTotal,
+            item.installation_total,
+            item.totalInstallation,
+            item.total_installation,
+            item.installationFeeTotal,
+            item.installation_fee_total
+        ];
+        const totalCandidate = candidates.find(value => value != null);
+        if (totalCandidate != null) {
+            const numeric = Number(totalCandidate);
+            if (Number.isFinite(numeric) && numeric >= 0) {
+                return numeric;
+            }
+        }
+        return unitInstallation * quantity;
+    };
+
     const itemsHtml = items.length
         ? items.map(item => {
             const quantity = resolveQuantity(item);
@@ -1401,6 +1436,13 @@ function renderOrderDetails(order) {
         return sum + lineTotal;
     }, 0);
 
+    const computedInstallation = items.reduce((sum, item) => {
+        const quantity = resolveQuantity(item);
+        const unitInstallation = resolveUnitInstallation(item);
+        const totalInstallation = resolveInstallationTotal(item, quantity, unitInstallation);
+        return sum + totalInstallation;
+    }, 0);
+
     const subtotal = Number(
         order.totalBeforeShipping ??
         order.totalPrice ??
@@ -1410,7 +1452,33 @@ function renderOrderDetails(order) {
     ) || 0;
     const shippingPrice = Number(order.shippingPrice || 0);
     const taxPrice = Number(order.taxPrice || 0);
-    const finalTotal = Number(order.totalOrderPrice || order.total || subtotal + shippingPrice + taxPrice) || 0;
+    const installationCandidates = [
+        order.installationPrice,
+        order.installationFee,
+        order.installation_cost,
+        order.installation,
+        order.fees?.installation,
+        order.totals?.installationPrice
+    ];
+    const installationCandidate = installationCandidates.find(value => value != null);
+    let installationPrice = Number(installationCandidate);
+    if (!Number.isFinite(installationPrice) || installationPrice < 0) {
+        installationPrice = computedInstallation;
+    }
+    const showInstallationRow = Number.isFinite(installationPrice) && installationPrice >= 0 && (installationPrice > 0 || computedInstallation > 0);
+
+    const finalTotal = Number(order.totalOrderPrice || order.total || (subtotal + shippingPrice + taxPrice + (installationPrice || 0))) || 0;
+
+    const formatInstallationPrice = (value) => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric < 0) {
+            return '—';
+        }
+        if (numeric === 0) {
+            return 'مجاني';
+        }
+        return formatPrice(numeric);
+    };
 
     return `
         <section class="order-details-section">
@@ -1448,6 +1516,7 @@ function renderOrderDetails(order) {
             <div class="order-details-card order-details-summary">
                 <div><span>قيمة المنتجات:</span><span>${formatPrice(subtotal)}</span></div>
                 ${shippingPrice > 0 ? `<div><span>مصاريف الشحن:</span><span>${formatPrice(shippingPrice)}</span></div>` : ''}
+                ${showInstallationRow ? `<div><span>رسوم التركيب:</span><span>${formatInstallationPrice(installationPrice)}</span></div>` : ''}
                 ${taxPrice ? `<div><span>الضريبة:</span><span>${formatPrice(taxPrice)}</span></div>` : ''}
                 <div class="order-details-total"><span>الإجمالي:</span><span>${formatPrice(finalTotal)}</span></div>
             </div>

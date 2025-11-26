@@ -523,6 +523,8 @@ function resolveGuestCartItem(productId, quantity = 1, payload = {}) {
     const quantityNumber = Number(quantity) || 1;
     const priceCandidate = payload.price ?? metadata.price ?? 0;
     const price = Number(sanitizePrice(priceCandidate)) || 0;
+    const installationCandidate = payload.installationPrice ?? metadata.installationPrice ?? 0;
+    const installationPrice = Number(sanitizePrice(installationCandidate)) || 0;
     let image = payload.image || metadata.image;
     if (!image && payload.rawProduct && typeof resolveProductImage === 'function') {
         image = resolveProductImage(payload.rawProduct);
@@ -539,7 +541,8 @@ function resolveGuestCartItem(productId, quantity = 1, payload = {}) {
         quantity: quantityNumber,
         price,
         name,
-        image
+        image,
+        installationPrice
     };
 }
 
@@ -581,10 +584,12 @@ function addProductToGuestCart(productId, quantity = 1, payload = {}) {
         items.push(newItem);
     }
 
+    const existingMetadata = productMetadataCache.get(productId) || {};
     productMetadataCache.set(productId, {
-        name: payload.name || productMetadataCache.get(productId)?.name || 'منتج',
-        price: Number(sanitizePrice(payload.price ?? productMetadataCache.get(productId)?.price ?? 0)) || 0,
-        image: payload.image || productMetadataCache.get(productId)?.image || FALLBACK_IMAGE
+        name: payload.name || existingMetadata.name || 'منتج',
+        price: Number(sanitizePrice(payload.price ?? existingMetadata.price ?? 0)) || 0,
+        image: payload.image || existingMetadata.image || FALLBACK_IMAGE,
+        installationPrice: Number(sanitizePrice(payload.installationPrice ?? existingMetadata.installationPrice ?? 0)) || 0
     });
 
     writeGuestCartItems(items);
@@ -638,6 +643,7 @@ const cartState = {
     totals: {
         subtotal: 0,
         shipping: 0,
+        installationPrice: 0,
         total: 0
     },
     isLoading: false,
@@ -689,10 +695,28 @@ function computeCartTotals(items = [], overrides = {}) {
         ? Number(sanitizePrice(overrides.shipping)) || 0
         : 0;
 
+    const installationFromItems = Array.isArray(items)
+        ? items.reduce((sum, item) => {
+            const installationUnit = Number(item?.installationPrice);
+            const quantity = Number(item?.quantity) || 0;
+            if (!Number.isFinite(installationUnit) || installationUnit <= 0 || quantity <= 0) {
+                return sum;
+            }
+            return sum + (installationUnit * quantity);
+        }, 0)
+        : 0;
+
+    const installation = overrides.installationPrice != null
+        ? Number(sanitizePrice(overrides.installationPrice)) || 0
+        : overrides.installation != null
+            ? Number(sanitizePrice(overrides.installation)) || 0
+            : installationFromItems;
+
     return {
         subtotal,
         shipping,
-        total: subtotal + shipping
+        installationPrice: installation,
+        total: subtotal + shipping + installation
     };
 }
 
@@ -806,6 +830,19 @@ function normalizeCartSnapshot(payload) {
             resolvedImage = cached.image;
         }
 
+        const installationSource =
+            item?.installationPrice ??
+            item?.installationFee ??
+            productObject?.installationPrice ??
+            productObject?.installation_price ??
+            productObject?.installationFee ??
+            item?.product?.installationPrice ??
+            item?.product?.installationFee;
+        let installationPrice = Number(sanitizePrice(installationSource));
+        if (!Number.isFinite(installationPrice) || installationPrice < 0) {
+            installationPrice = Number(sanitizePrice(previous?.installationPrice ?? cached?.installationPrice ?? 0)) || 0;
+        }
+
         if (!name) {
             name = 'منتج';
         }
@@ -820,6 +857,7 @@ function normalizeCartSnapshot(payload) {
             price,
             name,
             image: resolvedImage,
+            installationPrice,
             raw: item,
             total: Number((Number.isFinite(price) ? price : 0) * quantity)
         };
@@ -829,7 +867,8 @@ function normalizeCartSnapshot(payload) {
             productMetadataCache.set(productId, {
                 name: name || existing.name,
                 price: Number.isFinite(price) && price > 0 ? price : existing.price,
-                image: resolvedImage && resolvedImage !== FALLBACK_IMAGE ? resolvedImage : existing.image
+                image: resolvedImage && resolvedImage !== FALLBACK_IMAGE ? resolvedImage : existing.image,
+                installationPrice: Number.isFinite(installationPrice) && installationPrice >= 0 ? installationPrice : existing.installationPrice
             });
         }
 
@@ -838,7 +877,8 @@ function normalizeCartSnapshot(payload) {
 
     const totals = computeCartTotals(items, {
         subtotal: cartData?.subtotal ?? cartData?.totalPrice ?? cartData?.total ?? payload?.subtotal ?? payload?.total,
-        shipping: cartData?.shipping ?? cartData?.shippingCost ?? payload?.shipping
+        shipping: cartData?.shipping ?? cartData?.shippingCost ?? payload?.shipping,
+        installationPrice: cartData?.installationPrice ?? cartData?.installation ?? cartData?.installationFee ?? payload?.installationPrice ?? payload?.installation
     });
 
     const cartId = cartData?._id || cartData?.id || dataRoot?.cartId || dataRoot?.id || payload?.cartId || null;
@@ -2347,11 +2387,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const numericPrice = sanitizePrice(rawPrice);
             const price = Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : null;
 
+            const rawInstallation = product.installationPrice ?? product.installation_price ?? product.installationFee ?? product.details?.installationPrice ?? product.details?.installation_fee;
+            const numericInstallation = sanitizePrice(rawInstallation);
+            const installationPrice = Number.isFinite(numericInstallation) && numericInstallation >= 0 ? numericInstallation : null;
+
             const image = resolveProductImage(product);
             const slug = product.slug || product.handle || id;
             const description = product.shortDescription || product.description || 'اكتشف المزيد عن هذا المنتج عند فتح التفاصيل.';
 
-            return { id, name, categoryName, price, image, slug, description };
+            return { id, name, categoryName, price, installationPrice, image, slug, description };
         });
     }
 
@@ -2371,7 +2415,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     id: button.dataset.id || card.dataset.id,
                     name: card.dataset.name,
                     price: Number(card.dataset.price) || 0,
-                    image: card.dataset.image
+                    image: card.dataset.image,
+                    installationPrice: Number(button.dataset.installationPrice ?? card.dataset.installationPrice) || 0
                 };
 
                 if (typeof addToCart === 'function') {
@@ -2399,15 +2444,16 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        grid.innerHTML = dataset.map(({ id, name, categoryName, price, image, slug, description }) => {
+        grid.innerHTML = dataset.map(({ id, name, categoryName, price, installationPrice, image, slug, description }) => {
             const detailId = id || slug || '';
             const productUrl = detailId ? `./productDetails.html?id=${encodeURIComponent(detailId)}` : '#';
             const displayPrice = price !== null ? formatPrice(price) : '-';
             const datasetPrice = price !== null ? price : 0;
+            const datasetInstallation = installationPrice != null ? installationPrice : 0;
 
             return `
                 <div class="col-lg-4 col-md-6">
-                    <div class="product-card" data-id="${id}" data-name="${name}" data-price="${datasetPrice}" data-image="${image}">
+                    <div class="product-card" data-id="${id}" data-name="${name}" data-price="${datasetPrice}" data-installation-price="${datasetInstallation}" data-image="${image}">
                         <div class="image-thumb">
                             <img src="${image}" alt="${name}">
                         </div>
@@ -2418,7 +2464,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <p class="product-price">${displayPrice} <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="" aria-hidden="true" class="saudi-riyal-symbol" /></p>
                             <div class="product-buttons">
                                 <a href="${productUrl}" class="secondary-button">عرض المنتج</a>
-                                <a href="#" class="add-to-cart-btn secondary-button" data-id="${id}">أضف للسلة</a>
+                                <a href="#" class="add-to-cart-btn secondary-button" data-id="${id}" data-installation-price="${datasetInstallation}">أضف للسلة</a>
                             </div>
                         </div>
                     </div>
@@ -2492,7 +2538,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: product.id,
                 name: product.name,
                 price: product.price,
-                image: product.image
+                image: product.image,
+                installationPrice: Number(product.installationPrice) || 0
             };
 
             const snapshot = await addProductToCartById(product.id, 1, payload);
@@ -2520,8 +2567,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const product = {
                         id: this.dataset.id || productCard.dataset.id,
                         name: productCard.dataset.name,
-                        price: productCard.dataset.price,
-                        image: productCard.dataset.image
+                        price: Number(productCard.dataset.price) || 0,
+                        image: productCard.dataset.image,
+                        installationPrice: Number(this.dataset.installationPrice ?? productCard.dataset.installationPrice) || 0
                     };
                     addToCart(product);
                 }
@@ -2545,9 +2593,9 @@ document.addEventListener('DOMContentLoaded', () => {
         updateThemeIcon(currentTheme);
 
         themeToggle.addEventListener('click', function() {
-            let theme = document.documentElement.getAttribute('data-theme');
-            let newTheme = theme === 'dark' ? 'light' : 'dark';
-            
+            const theme = document.documentElement.getAttribute('data-theme');
+            const newTheme = theme === 'dark' ? 'light' : 'dark';
+
             document.documentElement.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
             updateThemeIcon(newTheme);
@@ -2558,7 +2606,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateThemeIcon(theme) {
         const themeToggle = document.getElementById('theme-toggle');
         if (!themeToggle) return;
-        
+
         const icon = themeToggle.querySelector('i');
         if (theme === 'dark') {
             icon.classList.remove('fa-moon');

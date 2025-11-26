@@ -338,12 +338,29 @@
         return `${formatCartPrice(value)} ${CURRENCY_ICON_HTML}`;
     }
 
+    function computeInstallationTotalFromItems(items = []) {
+        if (!Array.isArray(items) || !items.length) {
+            return 0;
+        }
+
+        return items.reduce((sum, item) => {
+            const unitInstallation = Number(item?.installationPrice);
+            const quantity = Number(item?.quantity) || 0;
+
+            if (!Number.isFinite(unitInstallation) || unitInstallation <= 0 || quantity <= 0) {
+                return sum;
+            }
+
+            return sum + (unitInstallation * quantity);
+        }, 0);
+    }
+
     const shippingZonesHelper = typeof window !== 'undefined' ? window.actionSportsShippingZones : null;
     let shippingZonesLoadPromise = null;
-    let selectedShippingDetails = { cost: 0, zoneId: null, zone: null, regionName: '' };
+    let selectedShippingDetails = { cost: 0, zoneId: null, zone: null, regionName: '', installationAvailable: false };
 
     function resetSelectedShippingDetails() {
-        selectedShippingDetails = { cost: 0, zoneId: null, zone: null, regionName: '' };
+        selectedShippingDetails = { cost: 0, zoneId: null, zone: null, regionName: '', installationAvailable: false };
     }
 
     function getShippingZonesHelper() {
@@ -448,11 +465,26 @@
             }
         }
 
+        const installationAvailabilityCandidates = [
+            address.isInstallationAvailable,
+            address.installationAvailable,
+            address.supportsInstallation,
+            address.raw?.isInstallationAvailable,
+            address.raw?.installationAvailable,
+            zoneObject?.isInstallationAvailable,
+            zoneObject?.installationAvailable,
+            zoneObject?.supportsInstallation,
+            zoneObject?.installation
+        ];
+
+        const installationAvailable = installationAvailabilityCandidates.some(value => value === true);
+
         return {
             cost: shippingCost,
             zoneId,
             zone: zoneObject,
-            regionName: regionName || (zoneObject?.name || '')
+            regionName: regionName || (zoneObject?.name || ''),
+            installationAvailable
         };
     }
 
@@ -638,6 +670,14 @@
                     <div class="summary-row" id="orderShippingRow" style="display: none;">
                         <span id="orderShippingLabel">مصاريف الشحن:</span>
                         <span class="price" id="orderShippingValue"></span>
+                    </div>
+                    <div class="summary-row" id="orderInstallationRow" style="display: none;">
+                        <span id="orderInstallationLabel">رسوم التركيب:</span>
+                        <span class="price" id="orderInstallationValue"></span>
+                    </div>
+                    <div class="summary-alert" id="orderInstallationAlert" style="display: none;">
+                        <i class="fa fa-info-circle"></i>
+                        <span>خدمة التركيب غير متاحة للمدينة المختارة. سيتم إكمال الطلب بدون تركيب.</span>
                     </div>
                     <div class="summary-row total">
                         <span>الإجمالي:</span>
@@ -999,7 +1039,13 @@
                 cost: Number(shippingDetails?.cost ?? activeAddress.shippingCost ?? activeAddress.shippingPrice) || 0,
                 zoneId: shippingDetails?.zoneId || activeAddress.regionId || selectedShippingDetails.zoneId,
                 zone: shippingDetails?.zone || activeAddress.shippingZone || null,
-                regionName: shippingDetails?.regionName || activeAddress.regionName || activeAddress.region || selectedShippingDetails.regionName || ''
+                regionName: shippingDetails?.regionName || activeAddress.regionName || activeAddress.region || selectedShippingDetails.regionName || '',
+                installationAvailable: Boolean(
+                    shippingDetails?.installationAvailable ??
+                    activeAddress.installationAvailable ??
+                    activeAddress.isInstallationAvailable ??
+                    selectedShippingDetails.installationAvailable
+                )
             };
         } else {
             resetSelectedShippingDetails();
@@ -1227,6 +1273,9 @@
         const totalValue = document.getElementById('orderTotalValue');
         const shippingRow = document.getElementById('orderShippingRow');
         const shippingValue = document.getElementById('orderShippingValue');
+        const installationRow = document.getElementById('orderInstallationRow');
+        const installationValue = document.getElementById('orderInstallationValue');
+        const installationAlert = document.getElementById('orderInstallationAlert');
 
         const state = getCartStateSafe();
         const items = Array.isArray(state.items) ? state.items : [];
@@ -1274,8 +1323,34 @@
             shippingValue.textContent = '';
         }
 
+        const rawInstallation = Number(state.totals?.installationPrice);
+        let installation = Number.isFinite(rawInstallation) && rawInstallation >= 0 ? rawInstallation : computeInstallationTotalFromItems(items);
+        const hasInstallationItems = installation > 0;
+        const installationSupported = Boolean(selectedShippingDetails?.installationAvailable);
+
+        if (!installationSupported) {
+            installation = 0;
+            if (installationAlert) {
+                installationAlert.style.display = hasInstallationItems && Boolean(selectedAddress) ? 'flex' : 'none';
+            }
+        } else if (installationAlert) {
+            installationAlert.style.display = 'none';
+        }
+
+        if (installationRow) {
+            const showInstallation = installationSupported && installation > 0;
+            installationRow.style.display = showInstallation ? 'flex' : 'none';
+            if (showInstallation && installationValue) {
+                installationValue.innerHTML = installation === 0
+                    ? 'مجاني'
+                    : renderCurrencyWithIcon(installation);
+            } else if (installationValue) {
+                installationValue.textContent = '';
+            }
+        }
+
         const declaredTotal = Number(state.totals?.total);
-        let total = subtotal + (Number.isFinite(shipping) && shipping > 0 ? shipping : 0);
+        let total = subtotal + (Number.isFinite(shipping) && shipping > 0 ? shipping : 0) + installation;
 
         if (!selectedAddress && (!Number.isFinite(shipping) || shipping < 0) && Number.isFinite(declaredTotal) && declaredTotal > 0) {
             total = declaredTotal;
@@ -1342,7 +1417,8 @@
             cost: Number(addressShippingDetails?.cost ?? selectedShippingDetails.cost) || 0,
             zoneId: addressShippingDetails?.zoneId || selectedShippingDetails.zoneId || selectedAddress?.regionId || null,
             zone: addressShippingDetails?.zone || selectedShippingDetails.zone || null,
-            regionName: addressShippingDetails?.regionName || selectedShippingDetails.regionName || selectedAddress?.regionName || selectedAddress?.region || ''
+            regionName: addressShippingDetails?.regionName || selectedShippingDetails.regionName || selectedAddress?.regionName || selectedAddress?.region || '',
+            installationAvailable: Boolean(addressShippingDetails?.installationAvailable ?? selectedShippingDetails.installationAvailable)
         };
 
         const regionIdForBackend =
@@ -1356,11 +1432,19 @@
             (typeof selectedAddress?.city === 'string' && /^[a-f0-9]{8,}$/i.test(selectedAddress.city) ? selectedAddress.city : null) ||
             null;
 
+        const installationBase = Number(state.totals?.installationPrice);
+        const installationFallback = computeInstallationTotalFromItems(state.items);
+        const installationSupported = Boolean(effectiveShippingDetails.installationAvailable);
+        const installationPrice = installationSupported
+            ? (Number.isFinite(installationBase) && installationBase >= 0 ? installationBase : installationFallback)
+            : 0;
+
         const payload = {
             paymentMethod: selectedPaymentMethod || CASH_PAYMENT_METHOD,
             shippingPrice: effectiveShippingDetails.cost,
             taxPrice: 0,
-            totalOrderPrice: subtotal + effectiveShippingDetails.cost,
+            installationPrice,
+            totalOrderPrice: subtotal + effectiveShippingDetails.cost + installationPrice,
             cartItems: state.items.map(item => ({
                 productId: item.productId || item.id,
                 quantity: item.quantity,
@@ -1627,7 +1711,8 @@
             cost: Number(refreshedShipping?.cost ?? selectedShippingDetails.cost) || 0,
             zoneId: refreshedShipping?.zoneId || selectedAddress.regionId || selectedShippingDetails.zoneId,
             zone: refreshedShipping?.zone || selectedAddress.shippingZone || selectedShippingDetails.zone,
-            regionName: refreshedShipping?.regionName || selectedAddress.regionName || selectedAddress.region || selectedShippingDetails.regionName || ''
+            regionName: refreshedShipping?.regionName || selectedAddress.regionName || selectedAddress.region || selectedShippingDetails.regionName || '',
+            installationAvailable: Boolean(refreshedShipping?.installationAvailable ?? selectedAddress.installationAvailable ?? selectedShippingDetails.installationAvailable)
         };
         updateSummaryTotals();
 
