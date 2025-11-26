@@ -30,6 +30,11 @@
             label: 'برنامج التقسيط'
         },
         {
+            key: 'applePay',
+            value: 'applePay',
+            label: 'أبل باي'
+        },
+        {
             key: 'payWithCard',
             value: 'card',
             label: 'بطاقة ائتمان'
@@ -74,7 +79,13 @@
             paymentSettingsCache = {
                 payOnDelivery: Boolean(data.payOnDelivery),
                 payWithCard: Boolean(data.payWithCard),
-                installments: Boolean(data.installments)
+                installments: Boolean(data.installments),
+                applePay: Boolean(
+                    data.applePay ??
+                    data.payWithApple ??
+                    data.payWithApplePay ??
+                    data.apple_pay
+                )
             };
 
             return paymentSettingsCache;
@@ -87,7 +98,8 @@
             paymentSettingsCache = {
                 payOnDelivery: true,
                 payWithCard: true,
-                installments: false
+                installments: false,
+                applePay: false
             };
             return paymentSettingsCache;
         }
@@ -1248,9 +1260,9 @@
         }
 
         switch (paymentMethod.value) {
-            case 'card': {
+            case 'card':
+            case 'applePay':
                 break;
-            }
             case 'installment': {
                 installmentProviders.style.display = 'block';
                 if (providerSelect) {
@@ -1561,7 +1573,7 @@
     }
 
     async function processOrderSubmission({ paymentMethod, payload, token, cartId }) {
-        if (paymentMethod === 'card') {
+        if (paymentMethod === 'card' || paymentMethod === 'applePay') {
             return initiatePayTabsPayment({ payload, token, cartId });
         }
 
@@ -1582,36 +1594,49 @@
             headers['token'] = token;
         }
 
-        const normalizedCartItems = Array.isArray(payload.cartItems) ? payload.cartItems.map((item, index) => {
+        const normalizedCartItems = Array.isArray(payload.cartItems) ? payload.cartItems.map(item => {
             const productSource = item?.product || item?.productId || item?.rawProduct || {};
             const productIdValue = typeof item?.productId === 'object'
                 ? (item.productId._id || item.productId.id || item.productId.value)
                 : (item.productId || item.id);
 
-            const resolvedName = item?.name || productSource?.name || `منتج ${index + 1}`;
             const resolvedPrice = Number(item?.price ?? productSource?.price ?? productSource?.unitPrice ?? 0);
             const resolvedQuantity = Number(item?.quantity ?? item?.qty ?? 1) || 1;
 
             return {
                 productId: productIdValue,
                 quantity: resolvedQuantity,
-                price: resolvedPrice,
-                name: resolvedName,
-                productName: resolvedName,
-                product: {
-                    _id: productIdValue,
-                    name: resolvedName,
-                    price: resolvedPrice,
-                    images: productSource?.images || []
-                }
+                price: resolvedPrice
             };
-        }) : [];
+        }).filter(item => item.productId) : [];
 
-        const customerPayload = {
-            name: payload.customerName,
-            email: payload.customerAccount || undefined,
-            phone: payload.shippingAddress?.phone || undefined
+        const rawShippingAddress = payload.shippingAddress || {};
+        const shippingDetailsValue = rawShippingAddress.details
+            || rawShippingAddress.address
+            || rawShippingAddress.addressLine1
+            || rawShippingAddress.line1
+            || '';
+
+        const minimalShippingAddress = {
+            details: shippingDetailsValue,
+            phone: rawShippingAddress.phone || undefined,
+            city: rawShippingAddress.city || rawShippingAddress.regionId || '',
+            postalCode: rawShippingAddress.postalCode || rawShippingAddress.zip || ''
         };
+
+        if (rawShippingAddress.addressId) {
+            minimalShippingAddress.addressId = rawShippingAddress.addressId;
+        }
+        if (rawShippingAddress.regionId) {
+            minimalShippingAddress.regionId = rawShippingAddress.regionId;
+        }
+
+        Object.keys(minimalShippingAddress).forEach((key) => {
+            const value = minimalShippingAddress[key];
+            if (value === undefined || value === null || value === '') {
+                delete minimalShippingAddress[key];
+            }
+        });
 
         const payTabsPayload = {
             cartId,
@@ -1619,15 +1644,17 @@
             totalOrderPrice: payload.totalOrderPrice,
             shippingPrice: payload.shippingPrice,
             taxPrice: payload.taxPrice,
-            shippingAddress: {
-                ...payload.shippingAddress,
-                name: payload.shippingAddress?.name || payload.customerName
-            },
             cartItems: normalizedCartItems,
-            customerName: payload.customerName,
-            customerAccount: payload.customerAccount,
-            customer: customerPayload
+            shippingAddress: minimalShippingAddress
         };
+
+        if (payload.userId) {
+            payTabsPayload.userId = payload.userId;
+        }
+
+        if (payload.notes) {
+            payTabsPayload.notes = payload.notes;
+        }
 
         console.log('🚀 Initiating PayTabs payment...');
         console.log('📍 Endpoint:', ORDER_ENDPOINTS.payWithPayTabs());
