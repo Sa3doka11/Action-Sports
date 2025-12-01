@@ -379,6 +379,96 @@
   }
 }
 
+@media (max-width: 1200px) {
+  .main-banner .caption {
+    width: 88%;
+  }
+
+  .main-banner .caption h2 {
+    font-size: 68px;
+    line-height: 1.1;
+  }
+
+  .main-banner .caption h6 {
+    font-size: 16px;
+  }
+
+  .section-heading {
+    margin-top: 110px;
+    margin-bottom: 70px;
+  }
+
+  .section-heading h2 {
+    font-size: 32px;
+  }
+
+  #features {
+    margin-bottom: 70px;
+  }
+
+  .feature-item {
+    gap: 20px;
+    padding: 20px 24px;
+  }
+
+  .feature-item .left-icon img {
+    width: 88px;
+    height: 88px;
+  }
+
+  .feature-item .right-content h4 {
+    font-size: 20px;
+  }
+
+  .feature-item .right-content p {
+    font-size: 14px;
+  }
+
+  #call-to-action {
+    padding: 100px 0;
+  }
+
+  .cta-content h2 {
+    font-size: 36px;
+  }
+
+  .cta-content p {
+    font-size: 18px;
+  }
+
+  #trainers {
+    padding-bottom: 90px;
+  }
+
+  .product-card {
+    padding: 22px;
+  }
+
+  .product-card .product-heading h4 {
+    font-size: 18px;
+  }
+
+  .product-card .product-description {
+    font-size: 14px;
+  }
+
+  .product-card .product-price {
+    font-size: 20px;
+  }
+
+  .main-button a,
+  .main-button button,
+  .secondary-button {
+    font-size: 16px;
+    padding: 11px 18px;
+  }
+
+  .banner-nav-btn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 @media (max-width: 991px) {
   .cta-banner-layout {
     flex-direction: column;
