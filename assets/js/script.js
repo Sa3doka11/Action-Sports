@@ -66,7 +66,9 @@ const AUTH_ENDPOINTS = {
     signUp: `${API_BASE_HOST}/auth/sign-up`,
     forgotPassword: `${API_BASE_HOST}/auth/forgot-password`,
     verifyResetCode: `${API_BASE_HOST}/auth/verify-reset-code`,
-    resetPassword: `${API_BASE_HOST}/auth/reset-password`
+    resetPassword: `${API_BASE_HOST}/auth/reset-password`,
+    verifyAccount: `${API_BASE_HOST}/auth/verify-account`,
+    resendVerificationCode: `${API_BASE_HOST}/auth/resend-verification-code`
 };
 
 const CONTACT_FORM_ENDPOINT = `${API_BASE_HOST}/messages`;
@@ -634,6 +636,12 @@ const passwordRecoveryState = {
     email: '',
     code: '',
     token: '',
+    timerId: null
+};
+
+const accountVerificationState = {
+    email: '',
+    isVerifying: false,
     timerId: null
 };
 
@@ -1365,7 +1373,15 @@ function initPasswordRecovery(loginForm) {
         button.addEventListener('click', () => {
             const target = button.getAttribute('data-close-popup');
             if (target === 'forgotPassword') hideInlinePopup(forgotPopup);
-            if (target === 'otp') hideInlinePopup(otpPopup);
+            if (target === 'otp') {
+                hideInlinePopup(otpPopup);
+                clearAccountVerificationState();
+                // إذا كان في وضع التحقق من الحساب، لا نعود للـ login
+                if (!accountVerificationState.isVerifying) {
+                    showPopup('login');
+                }
+                return;
+            }
             if (target === 'resetPassword') hideInlinePopup(resetPopup);
             clearPasswordRecoveryTimer();
             showPopup('login');
@@ -1502,6 +1518,230 @@ function initPasswordRecovery(loginForm) {
                 toggleLoading(resetSubmit, false);
             }
         });
+    }
+}
+
+// ===================================================================
+// ACCOUNT VERIFICATION FUNCTIONS
+// ===================================================================
+
+// Global state for resend timer
+let resendTimer = null;
+let resendTimeLeft = 60; // 60 seconds cooldown
+
+// Function to start the resend timer
+function startResendTimer() {
+    const resendBtn = document.getElementById('resendOtpBtn');
+    const timerElement = document.getElementById('resendTimer');
+    
+    if (resendTimer) {
+        clearInterval(resendTimer);
+    }
+    
+    resendTimeLeft = 60;
+    updateTimerDisplay();
+    
+    if (resendBtn) {
+        resendBtn.disabled = true;
+    }
+    
+    resendTimer = setInterval(() => {
+        resendTimeLeft--;
+        updateTimerDisplay();
+        
+        if (resendTimeLeft <= 0) {
+            clearInterval(resendTimer);
+            if (resendBtn) {
+                resendBtn.disabled = false;
+            }
+            if (timerElement) {
+                timerElement.textContent = '';
+            }
+        }
+    }, 1000);
+}
+
+// Function to update the timer display
+function updateTimerDisplay() {
+    const timerElement = document.getElementById('resendTimer');
+    if (timerElement) {
+        if (resendTimeLeft > 0) {
+            timerElement.textContent = `يمكنك إعادة الإرسال بعد ${resendTimeLeft} ثانية`;
+        } else {
+            timerElement.textContent = '';
+        }
+    }
+}
+
+// Initialize resend OTP functionality
+function initResendOtpButton() {
+    const resendBtn = document.getElementById('resendOtpBtn');
+    if (!resendBtn) return;
+    
+    resendBtn.addEventListener('click', async () => {
+        const email = accountVerificationState.email || '';
+        if (!email) {
+            console.error('No email found for resending OTP');
+            return;
+        }
+        
+        try {
+            resendBtn.disabled = true;
+            resendBtn.textContent = 'جاري الإرسال...';
+            
+            await handleResendVerificationCode(email);
+            
+            const otpMessage = document.getElementById('otpFormMessage');
+            if (otpMessage) {
+                setMessage(otpMessage, 'تم إرسال رمز تحقق جديد إلى بريدك الإلكتروني', 'success');
+            }
+            
+            // Start the resend timer
+            startResendTimer();
+            
+        } catch (error) {
+            console.error('❌ Failed to resend verification code:', error);
+            const otpMessage = document.getElementById('otpFormMessage');
+            if (otpMessage) {
+                setMessage(otpMessage, error.message || 'فشل إعادة إرسال رمز التحقق', 'error');
+            }
+        } finally {
+            resendBtn.textContent = 'إعادة إرسال رمز التحقق';
+            if (resendTimeLeft <= 0) {
+                resendBtn.disabled = false;
+            }
+        }
+    });
+}
+
+// Call this when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    initResendOtpButton();
+    // ... rest of your existing code
+});
+
+async function showAccountVerificationPopup(email) {
+    accountVerificationState.email = email;
+    accountVerificationState.isVerifying = true;
+    
+    const otpForm = document.getElementById('otpForm');
+    const otpMessage = document.getElementById('otpFormMessage');
+    const otpInput = document.getElementById('otpCode');
+    
+    if (otpForm) {
+        otpForm.reset();
+        clearFormErrors(otpForm);
+    }
+    
+    if (otpMessage) {
+        setMessage(otpMessage, 'تم إرسال رمز التحقق إلى بريدك الإلكتروني', 'info');
+    }
+    
+    if (otpInput) {
+        otpInput.focus();
+    }
+    
+    // Start the resend timer when showing the popup
+    startResendTimer();
+    
+    // إغلاق popups الأخرى بطريقة آمنة
+    const signupPopup = document.getElementById('signupPopup');
+    const loginPopup = document.getElementById('loginPopup');
+    if (signupPopup) signupPopup.style.display = 'none';
+    if (loginPopup) loginPopup.style.display = 'none';
+    
+    const otpPopup = document.getElementById('otpPopup');
+    if (otpPopup) {
+        otpPopup.removeAttribute('hidden');
+        otpPopup.removeAttribute('inert');
+        otpPopup.classList.add('is-visible');
+        otpPopup.style.display = 'flex';
+    }
+}
+
+async function handleAccountVerification(otpCode) {
+    const otpForm = document.getElementById('otpForm');
+    const otpMessage = document.getElementById('otpFormMessage');
+    const otpSubmit = otpForm?.querySelector('#otpSubmit');
+    const email = accountVerificationState.email;
+    
+    if (!email || !otpCode.trim()) {
+        setMessage(otpMessage, 'يرجى إدخال البريد الإلكتروني ورمز التحقق', 'error');
+        return;
+    }
+    
+    if (otpSubmit) {
+        toggleLoading(otpSubmit, true);
+    }
+    
+    try {
+        const payload = {
+            email: email,
+            otp: otpCode.trim()
+        };
+        
+        const result = await postJson(AUTH_ENDPOINTS.verifyAccount, payload);
+        
+        setMessage(otpMessage, result?.message || 'تم التحقق من الحساب بنجاح', 'success');
+        
+        const token = result?.token || result?.data?.token || result?.accessToken || result?.data?.accessToken;
+        if (token) {
+            setAuthToken(token);
+            try {
+                await ensureAuthUserLoaded(true);
+            } catch (profileError) {
+                console.warn('⚠️ Failed to fetch profile after verification:', profileError);
+                setAuthUser(extractAuthUser(result));
+            }
+        }
+        
+        if (otpForm) {
+            otpForm.reset();
+        }
+        
+        setTimeout(() => {
+            const otpPopup = document.getElementById('otpPopup');
+            if (otpPopup) {
+                otpPopup.classList.remove('is-visible');
+                otpPopup.setAttribute('hidden', '');
+                otpPopup.style.display = 'none';
+            }
+            updateAuthUI();
+            handlePostLoginRedirect();
+        }, 1500);
+        
+    } catch (error) {
+        console.error('❌ Account verification error:', error);
+        const validationErrors = mapValidationErrors(error.errors);
+        setFieldErrors(otpForm, validationErrors);
+        const message = error.status === 400
+            ? 'رمز التحقق غير صحيح'
+            : (error.message || 'تعذر التحقق من الحساب');
+        setMessage(otpMessage, message, 'error');
+    } finally {
+        if (otpSubmit) {
+            toggleLoading(otpSubmit, false);
+        }
+    }
+}
+
+async function handleResendVerificationCode(email) {
+    try {
+        const payload = { email: email };
+        const result = await postJson(AUTH_ENDPOINTS.resendVerificationCode, payload);
+        return result;
+    } catch (error) {
+        console.error('❌ Resend verification code error:', error);
+        throw error;
+    }
+}
+
+function clearAccountVerificationState() {
+    accountVerificationState.email = '';
+    accountVerificationState.isVerifying = false;
+    if (accountVerificationState.timerId) {
+        clearTimeout(accountVerificationState.timerId);
+        accountVerificationState.timerId = null;
     }
 }
 
@@ -1757,6 +1997,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 const result = await postJson(AUTH_ENDPOINTS.signIn, payload);
+                
+                // التحقق من ما إذا كان الحساب يحتاج تحقق
+                const isAccountUnverified = result?.requiresVerification || result?.data?.requiresVerification || result?.status === 'unverified' || result?.data?.status === 'unverified';
+                
+                if (isAccountUnverified) {
+                    // الحساب غير مؤكد - عرض popup التحقق
+                    setMessage(messageBox, '', '');
+                    
+                    // حفظ البريد الإلكتروني للتحقق لاحقاً
+                    accountVerificationState.email = payload.email;
+                    
+                    // عرض popup التحقق
+                    setTimeout(() => {
+                        showAccountVerificationPopup(payload.email);
+                        const otpMessage = document.getElementById('otpFormMessage');
+                        if (otpMessage) {
+                            setMessage(otpMessage, 'تم إرسال رمز التحقق إلى بريدك الإلكتروني. يرجى إدخاله', 'info');
+                        }
+                    }, 800);
+                    
+                    return;
+                }
+                
+                // الحساب مؤكد - إكمال عملية الدخول
                 setMessage(messageBox, result?.message || 'تم تسجيل الدخول بنجاح', 'success');
                 const token = result?.token || result?.data?.token || result?.accessToken || result?.data?.accessToken;
                 if (token) {
@@ -1774,12 +2038,56 @@ document.addEventListener('DOMContentLoaded', () => {
                 handlePostLoginRedirect();
             } catch (error) {
                 console.error('❌ Login error:', error);
+                
+                // التحقق من ما إذا كان الخطأ بسبب حساب غير مؤكد
+                const isUnverifiedError = error?.status === 403 || error?.message?.includes('unverified') || error?.message?.includes('verify');
+                
+                if (isUnverifiedError) {
+                    const email = document.querySelector('#loginEmail')?.value || '';
+                    if (email) {
+                        accountVerificationState.email = email;
+                        
+                        const resendBtn = document.createElement('button');
+                        resendBtn.type = 'button';
+                        resendBtn.className = 'resend-verification-btn';
+                        resendBtn.textContent = 'إعادة إرسال رمز التحقق';
+                        resendBtn.style.marginTop = '10px';
+                        resendBtn.style.width = '100%';
+                        
+                        resendBtn.addEventListener('click', async () => {
+                            try {
+                                resendBtn.disabled = true;
+                                resendBtn.textContent = 'جاري الإرسال...';
+                                
+                                await handleResendVerificationCode(email);
+                                
+                                setMessage(messageBox, 'تم إرسال رمز التحقق إلى بريدك الإلكتروني', 'success');
+                                
+                                setTimeout(() => {
+                                    showAccountVerificationPopup(email);
+                                }, 1500);
+                            } catch (resendError) {
+                                console.error('❌ Resend error:', resendError);
+                                setMessage(messageBox, resendError.message || 'تعذر إرسال الرمز. حاول مرة أخرى.', 'error');
+                                resendBtn.disabled = false;
+                                resendBtn.textContent = 'إعادة إرسال رمز التحقق';
+                            }
+                        });
+                        
+                        // إضافة الزر إلى رسالة الخطأ
+                        const errorContainer = messageBox.parentElement;
+                        if (errorContainer && !errorContainer.querySelector('.resend-verification-btn')) {
+                            errorContainer.appendChild(resendBtn);
+                        }
+                    }
+                }
+                
                 const validationErrors = mapValidationErrors(error.errors);
                 setFieldErrors(loginForm, validationErrors);
                 const message = error.status === 401
                     ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة'
                     : (error.message || 'تعذر تسجيل الدخول');
-                setMessage(messageBox, message, 'error');
+                setMessage(messageBox, isUnverifiedError ? 'الحساب بحاجة إلى تحقق' : message, 'error');
             } finally {
                 toggleLoading(submitBtn, false);
             }
@@ -1812,7 +2120,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 const result = await postJson(AUTH_ENDPOINTS.signUp, payload);
-                setMessage(messageBox, result?.message || 'تم إنشاء الحساب بنجاح', 'success');
+                setMessage(messageBox, result?.message || 'تم إنشاء الحساب بنجاح. يرجى التحقق من بريدك الإلكتروني', 'success');
+                
                 const token = result?.token || result?.data?.token || result?.accessToken || result?.data?.accessToken;
                 if (token) {
                     setAuthToken(token);
@@ -1823,10 +2132,20 @@ document.addEventListener('DOMContentLoaded', () => {
                         setAuthUser(extractAuthUser(result));
                     }
                 }
+                
                 signupForm.reset();
-                hidePopup('signup');
-                updateAuthUI();
-                handlePostLoginRedirect();
+                
+                // عرض popup التحقق من الحساب
+                const email = payload.email || extractAuthUser(result)?.email || '';
+                if (email) {
+                    setTimeout(() => {
+                        showAccountVerificationPopup(email);
+                    }, 1000);
+                } else {
+                    hidePopup('signup');
+                    updateAuthUI();
+                    handlePostLoginRedirect();
+                }
             } catch (error) {
                 console.error('❌ Signup error:', error);
                 const validationErrors = mapValidationErrors(error.errors);
@@ -1836,6 +2155,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     message = 'هذا البريد الإلكتروني مسجل بالفعل';
                 }
                 setMessage(messageBox, message, 'error');
+            } finally {
+                toggleLoading(submitBtn, false);
+            }
+        });
+    }
+
+    const otpForm = document.getElementById('otpForm');
+    if (otpForm) {
+        otpForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            clearFormErrors(otpForm);
+
+            const submitBtn = otpForm.querySelector('#otpSubmit');
+            const messageBox = otpForm.querySelector('#otpFormMessage');
+            const formData = new FormData(otpForm);
+            const otpCode = formData.get('otpCode');
+
+            setMessage(messageBox, '', '');
+            toggleLoading(submitBtn, true);
+
+            try {
+                await handleAccountVerification(otpCode);
+            } catch (error) {
+                console.error('❌ OTP verification error:', error);
             } finally {
                 toggleLoading(submitBtn, false);
             }

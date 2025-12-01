@@ -1113,23 +1113,20 @@ async function hydrateProfileFromAuth() {
         if (typeof setRedirectAfterLogin === 'function') {
             setRedirectAfterLogin(window.location.href);
         }
-        window.location.href = 'index.html';
     }
 }
 
 function populateProfileFromAuthUser(user) {
     if (!user) return;
+    
     const displayName = user.name || 'مستخدم';
     const email = user.email || '';
 
     const userNameEl = document.getElementById('userName');
     if (userNameEl) {
-        const verifiedBadge = userNameEl.querySelector('.verified-badge');
-        if (verifiedBadge) {
-            const textNode = userNameEl.childNodes[0];
-            if (textNode) {
-                textNode.textContent = `${displayName} `;
-            }
+        const textNode = userNameEl.childNodes[0];
+        if (textNode) {
+            textNode.textContent = `${displayName} `;
         } else {
             userNameEl.textContent = displayName;
         }
@@ -2004,6 +2001,56 @@ function getAuthTokenSafe() {
         return localStorage.getItem('actionSportsAuthToken');
     } catch (error) {
         return null;
+    }
+}
+
+// ===================================================================
+// ACCOUNT VERIFICATION SUPPORT
+// ===================================================================
+
+function checkAccountVerificationStatus(user) {
+    const unverifiedBanner = document.getElementById('unverifiedBanner');
+    const verifyBtn = document.getElementById('verifyAccountBtn');
+    
+    if (!unverifiedBanner) return;
+    
+    const isUnverified = user?.isUnverified || user?.status === 'unverified' || user?.verified === false;
+    
+    if (isUnverified) {
+        unverifiedBanner.hidden = false;
+        
+        if (verifyBtn) {
+            verifyBtn.addEventListener('click', async () => {
+                const email = user?.email || document.getElementById('userEmail')?.textContent?.trim();
+                if (!email) {
+                    showCustomAlert('لم يتم العثور على البريد الإلكتروني');
+                    return;
+                }
+                
+                try {
+                    verifyBtn.disabled = true;
+                    verifyBtn.textContent = 'جاري الإرسال...';
+                    
+                    await handleResendVerificationCode(email);
+                    
+                    showCustomAlert('تم إرسال رمز التحقق إلى بريدك الإلكتروني');
+                    
+                    // عرض popup التحقق
+                    if (typeof showAccountVerificationPopup === 'function') {
+                        setTimeout(() => {
+                            showAccountVerificationPopup(email);
+                        }, 1500);
+                    }
+                } catch (error) {
+                    console.error('❌ Resend verification error:', error);
+                    showCustomAlert(error.message || 'تعذر إرسال رمز التحقق. حاول مرة أخرى.');
+                    verifyBtn.disabled = false;
+                    verifyBtn.textContent = 'تأكيد الحساب';
+                }
+            });
+        }
+    } else {
+        unverifiedBanner.hidden = true;
     }
 }
 

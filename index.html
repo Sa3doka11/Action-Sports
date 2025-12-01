@@ -259,11 +259,14 @@
                             <form id="otpForm">
                                 <p class="otp-instructions">أدخل رمز التحقق المرسل إلى بريدك الإلكتروني.</p>
                                 <div class="input-group">
-                                    <input type="text" id="otpCode" name="otpCode" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" required>
-                                    <label for="otpCode">رمز التحقق</label>
+                                    <input type="text" id="otpCode" name="otpCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="أدخل رمز التحقق" required>
                                     <span class="input-error" data-error-for="otpCode"></span>
                                 </div>
                                 <button type="submit" class="login-btn" id="otpSubmit" data-loading-text="جاري التحقق...">تأكيد</button>
+                                <div class="resend-otp-container">
+                                    <button type="button" id="resendOtpBtn" class="resend-otp-btn">إعادة إرسال رمز التحقق</button>
+                                    <span id="resendTimer" class="resend-timer"></span>
+                                </div>
                                 <div id="otpFormMessage" class="form-message" role="alert" aria-live="polite"></div>
                             </form>
                         </div>
