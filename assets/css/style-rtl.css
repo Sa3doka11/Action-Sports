@@ -897,7 +897,7 @@
 
     .product-card span {
       font-size: 14px;
-      font-weight: 500;
+      /* font-weight: 500; */
       color: var(--primary-color);
       display: -webkit-box;
       line-clamp: 1;
@@ -944,11 +944,45 @@
     }
 
     .product-card .product-price {
-      font-size: 20px;
+      font-size: 20px ;
       color: #232d39;
       font-weight: 700;
       margin-top: 10px;
       margin-bottom: 20px;
+    }
+
+    .product-card .product-price .old-price {
+      position: relative;
+      display: inline-block;
+      margin-left: 8px;
+      padding: 0 2px;
+      color: #a09a9a;
+      font-weight: 500;
+      font-size: 22px;
+    }
+
+    .product-card .product-price .old-price::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background-color: currentColor;
+      transform: translateY(-50%) rotate(-5deg);
+    }
+
+    [data-theme="dark"] .product-card .product-price .old-price {
+      color: rgba(245, 247, 251, 0.6);
+    }
+
+    [data-theme="dark"] .product-card .product-price .old-price::after {
+      opacity: 0.8;
+    }
+
+    .product-card .product-price .current-price {
+      display: inline-block;
+      font-size: 22px;
     }
 
     .product-card .product-buttons {
@@ -983,7 +1017,7 @@
     #cart-total-price .saudi-riyal-symbol {
       width: 20px;
       height: 20px;
-      vertical-align: middle;
+      vertical-align: top;
       margin-right: 4px;
       margin-left: 4px;
     }

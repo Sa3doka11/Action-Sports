@@ -2801,8 +2801,32 @@ document.addEventListener('DOMContentLoaded', () => {
             const categoryName = product.category?.name || product.categoryName || 'فئة غير محددة';
 
             const rawPrice = product.price?.current ?? product.price?.value ?? product.price?.amount ?? product.price ?? product.currentPrice ?? product.salePrice ?? product.basePrice;
-            const numericPrice = sanitizePrice(rawPrice);
-            const price = Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : null;
+            const basePriceNumeric = sanitizePrice(rawPrice);
+            const hasBasePrice = Number.isFinite(basePriceNumeric) && basePriceNumeric > 0;
+
+            const discountCandidates = [
+                product.priceAfterDiscount,
+                product.discountPrice,
+                product.discountedPrice,
+                product.salePriceAfterDiscount,
+                product.finalPrice,
+                product.final_price,
+                product.price?.afterDiscount,
+                product.price?.priceAfterDiscount
+            ];
+            const discountRaw = discountCandidates.find(value => value !== undefined && value !== null && value !== '');
+            const discountNumeric = sanitizePrice(discountRaw);
+            const hasDiscountPrice = Number.isFinite(discountNumeric) && discountNumeric > 0;
+
+            const originalPrice = hasBasePrice ? basePriceNumeric : null;
+            const discountPrice = hasDiscountPrice && hasBasePrice && discountNumeric < basePriceNumeric ? discountNumeric : null;
+
+            const effectivePrice = Number.isFinite(discountPrice)
+                ? discountPrice
+                : hasBasePrice
+                    ? basePriceNumeric
+                    : (hasDiscountPrice ? discountNumeric : null);
+            const price = Number.isFinite(effectivePrice) && effectivePrice > 0 ? effectivePrice : null;
 
             const rawInstallation = product.installationPrice ?? product.installation_price ?? product.installationFee ?? product.details?.installationPrice ?? product.details?.installation_fee;
             const numericInstallation = sanitizePrice(rawInstallation);
@@ -2812,7 +2836,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const slug = product.slug || product.handle || id;
             const description = product.shortDescription || product.description || 'اكتشف المزيد عن هذا المنتج عند فتح التفاصيل.';
 
-            return { id, name, categoryName, price, installationPrice, image, slug, description };
+            return { id, name, categoryName, price, originalPrice, discountPrice, installationPrice, image, slug, description };
         });
     }
 
@@ -2861,16 +2885,23 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        grid.innerHTML = dataset.map(({ id, name, categoryName, price, installationPrice, image, slug, description }) => {
+        grid.innerHTML = dataset.map(({ id, name, categoryName, price, originalPrice, discountPrice, installationPrice, image, slug, description }) => {
             const detailId = id || slug || '';
             const productUrl = detailId ? `./productDetails.html?id=${encodeURIComponent(detailId)}` : '#';
-            const displayPrice = price !== null ? formatPrice(price) : '-';
-            const datasetPrice = price !== null ? price : 0;
+            const hasDiscount = Number.isFinite(originalPrice) && originalPrice > 0
+                && Number.isFinite(discountPrice) && discountPrice > 0
+                && discountPrice < originalPrice;
+            const priceMarkup = hasDiscount
+                ? `<span class="old-price">${formatPrice(originalPrice)}</span><span class="current-price">${formatPrice(price ?? discountPrice ?? 0)}</span>`
+                : `<span class="current-price">${price !== null ? formatPrice(price) : '-'}</span>`;
+            const datasetPrice = price !== null ? price : (Number.isFinite(discountPrice) ? discountPrice : 0);
+            const originalPriceAttr = originalPrice != null ? originalPrice : '';
+            const discountPriceAttr = discountPrice != null ? discountPrice : '';
             const datasetInstallation = installationPrice != null ? installationPrice : 0;
 
             return `
                 <div class="col-lg-4 col-md-6">
-                    <div class="product-card" data-id="${id}" data-name="${name}" data-price="${datasetPrice}" data-installation-price="${datasetInstallation}" data-image="${image}">
+                    <div class="product-card" data-id="${id}" data-name="${name}" data-price="${datasetPrice}" data-original-price="${originalPriceAttr}" data-discount-price="${discountPriceAttr}" data-installation-price="${datasetInstallation}" data-image="${image}">
                         <div class="image-thumb">
                             <img src="${image}" alt="${name}">
                         </div>
@@ -2878,7 +2909,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <span>${categoryName}</span>
                             <h4>${name}</h4>
                             <p class="product-description">${description}</p>
-                            <p class="product-price">${displayPrice} <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="" aria-hidden="true" class="saudi-riyal-symbol" /></p>
+                            <p class="product-price">${priceMarkup} <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="" aria-hidden="true" class="saudi-riyal-symbol" /></p>
                             <div class="product-buttons">
                                 <a href="${productUrl}" class="secondary-button">عرض المنتج</a>
                                 <a href="#" class="add-to-cart-btn secondary-button" data-id="${id}" data-installation-price="${datasetInstallation}">أضف للسلة</a>

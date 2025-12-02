@@ -220,8 +220,18 @@
         grid.classList.remove('is-hidden');
         if (noProducts) noProducts.classList.add('is-hidden');
 
-        grid.innerHTML = filteredProducts.map(product => `
-            <div class="product-item product-card" data-id="${product.id}" data-name="${product.name}" data-price="${product.price}" data-image="${product.image}" data-category="${product.categorySlug}">
+        grid.innerHTML = filteredProducts.map(product => {
+            const hasDiscount = Number.isFinite(product.originalPrice) && product.originalPrice > 0
+                && Number.isFinite(product.discountPrice) && product.discountPrice > 0
+                && product.discountPrice < product.originalPrice;
+            const priceMarkup = hasDiscount
+                ? `<span class="old-price">${formatPrice(product.originalPrice)}</span><span class="current-price">${formatPrice(product.price)}</span>`
+                : `<span class="current-price">${formatPrice(product.price)}</span>`;
+            const originalPriceAttr = product.originalPrice != null ? product.originalPrice : '';
+            const discountPriceAttr = product.discountPrice != null ? product.discountPrice : '';
+
+            return `
+            <div class="product-item product-card" data-id="${product.id}" data-name="${product.name}" data-price="${product.price}" data-original-price="${originalPriceAttr}" data-discount-price="${discountPriceAttr}" data-image="${product.image}" data-category="${product.categorySlug}">
                 <div class="image-thumb">
                     <img src="${product.image}" alt="${product.name}">
                 </div>
@@ -231,14 +241,15 @@
                         <h4>${product.name}</h4>
                     </div>
                     <p class="product-description">${product.description}</p>
-                    <p class="product-price">${formatPrice(product.price)} <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="" aria-hidden="true" class="saudi-riyal-symbol" /></p>
+                    <p class="product-price">${priceMarkup} <img src="./assets/images/Saudi_Riyal_Symbol.png" alt="" aria-hidden="true" class="saudi-riyal-symbol" /></p>
                     <div class="product-buttons">
                         <a href="productDetails.html?id=${product.id}" class="secondary-button">عرض المنتج</a>
                         <a href="#" class="add-to-cart-btn secondary-button" data-id="${product.id}">أضف للسلة</a>
                     </div>
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
     }
 
     /* ===================================================================
@@ -557,9 +568,42 @@
             subCategory = { _id: subCategory, slug: subCategory };
         }
 
+        const parsePriceValue = (value) => {
+            if (value === undefined || value === null || value === '') return NaN;
+            if (typeof value === 'string') {
+                return Number(value.replace(/[^\d.]/g, ''));
+            }
+            return Number(value);
+        };
+
         const rawPrice = product.price?.current ?? product.price?.value ?? product.price?.amount ?? product.price ?? product.currentPrice ?? product.salePrice ?? product.basePrice;
-        const numericPrice = typeof rawPrice === 'string' ? Number(rawPrice.replace(/[^\d.]/g, '')) : Number(rawPrice);
-        const price = Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : 0;
+        const numericPrice = parsePriceValue(rawPrice);
+        const hasBasePrice = Number.isFinite(numericPrice) && numericPrice > 0;
+
+        const discountCandidates = [
+            product.priceAfterDiscount,
+            product.discountPrice,
+            product.discountedPrice,
+            product.salePriceAfterDiscount,
+            product.finalPrice,
+            product.final_price,
+            product.price?.afterDiscount,
+            product.price?.priceAfterDiscount
+        ];
+        const discountRaw = discountCandidates.find(value => value !== undefined && value !== null && value !== '');
+        const numericDiscount = parsePriceValue(discountRaw);
+        const hasDiscountPrice = Number.isFinite(numericDiscount) && numericDiscount > 0;
+
+        const basePriceValue = hasBasePrice ? numericPrice : 0;
+        const originalPrice = hasBasePrice ? numericPrice : null;
+        const discountPrice = hasDiscountPrice && hasBasePrice && numericDiscount < numericPrice ? numericDiscount : null;
+
+        const effectivePrice = Number.isFinite(discountPrice)
+            ? discountPrice
+            : hasBasePrice
+                ? numericPrice
+                : (hasDiscountPrice ? numericDiscount : 0);
+        const price = Number.isFinite(effectivePrice) && effectivePrice > 0 ? effectivePrice : 0;
 
         const imageUrl = (typeof window !== 'undefined' && typeof window.resolveProductImage === 'function')
             ? window.resolveProductImage(product)
@@ -580,6 +624,8 @@
             name,
             description,
             price,
+            originalPrice,
+            discountPrice,
             image: imageUrl,
             categoryId,
             categorySlug,

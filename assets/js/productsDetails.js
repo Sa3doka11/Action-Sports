@@ -342,7 +342,15 @@
 
         if (productName) productName.textContent = product.name;
         if (productCategory) productCategory.textContent = product.categoryName || 'فئة غير محددة';
-        if (priceValue) priceValue.textContent = formatPrice(product.price);
+        if (priceValue) {
+            const hasDiscount = Number.isFinite(product.originalPrice) && product.originalPrice > 0
+                && Number.isFinite(product.discountPrice) && product.discountPrice > 0
+                && product.discountPrice < product.originalPrice;
+            const priceMarkup = hasDiscount
+                ? `<span class="old-price">${formatPrice(product.originalPrice)}</span><span class="current-price">${formatPrice(product.price)}</span>`
+                : `<span class="current-price">${formatPrice(product.price)}</span>`;
+            priceValue.innerHTML = priceMarkup;
+        }
         if (productDescription) productDescription.textContent = product.description;
 
         if (brandDetailSection) {
@@ -412,11 +420,45 @@
 
         const category = rawProduct.category || rawProduct.mainCategory || {};
         const subCategory = rawProduct.subCategory || rawProduct.subcategory || {};
+        const parsePriceValue = (value) => {
+            if (typeof window !== 'undefined' && typeof window.sanitizePrice === 'function') {
+                const parsed = window.sanitizePrice(value);
+                return Number.isFinite(parsed) ? parsed : Number(parsed);
+            }
+            if (value === undefined || value === null || value === '') return NaN;
+            if (typeof value === 'string') {
+                return Number(value.replace(/[^\d.]/g, ''));
+            }
+            return Number(value);
+        };
+
         const rawPrice = rawProduct.price?.current ?? rawProduct.price?.value ?? rawProduct.price?.amount ?? rawProduct.price ?? rawProduct.currentPrice ?? rawProduct.salePrice ?? rawProduct.basePrice;
-        const sanitizedPrice = (typeof window !== 'undefined' && typeof window.sanitizePrice === 'function')
-            ? window.sanitizePrice(rawPrice)
-            : Number(rawPrice);
-        const price = Number.isFinite(sanitizedPrice) ? sanitizedPrice : 0;
+        const basePriceNumeric = parsePriceValue(rawPrice);
+        const hasBasePrice = Number.isFinite(basePriceNumeric) && basePriceNumeric > 0;
+
+        const discountCandidates = [
+            rawProduct.priceAfterDiscount,
+            rawProduct.discountPrice,
+            rawProduct.discountedPrice,
+            rawProduct.salePriceAfterDiscount,
+            rawProduct.finalPrice,
+            rawProduct.final_price,
+            rawProduct.price?.afterDiscount,
+            rawProduct.price?.priceAfterDiscount
+        ];
+        const discountRaw = discountCandidates.find(value => value !== undefined && value !== null && value !== '');
+        const discountNumeric = parsePriceValue(discountRaw);
+        const hasDiscountPrice = Number.isFinite(discountNumeric) && discountNumeric > 0;
+
+        const originalPrice = hasBasePrice ? basePriceNumeric : null;
+        const discountPrice = hasDiscountPrice && hasBasePrice && discountNumeric < basePriceNumeric ? discountNumeric : null;
+
+        const effectivePrice = Number.isFinite(discountPrice)
+            ? discountPrice
+            : hasBasePrice
+                ? basePriceNumeric
+                : (hasDiscountPrice ? discountNumeric : null);
+        const price = Number.isFinite(effectivePrice) && effectivePrice > 0 ? effectivePrice : 0;
 
         const images = collectProductImages(rawProduct);
         const imageUrl = images[0] || FALLBACK_IMAGE;
@@ -479,18 +521,21 @@
 
         return {
             id,
-            name: rawProduct.name || rawProduct.title || 'منتج بدون اسم',
-            categoryName: category?.name || rawProduct.categoryName || 'فئة غير محددة',
-            price,
-            image: imageUrl,
-            images,
+            name: rawProduct.name || rawProduct.title || '',
+            categoryName: category?.name || rawProduct.categoryName || '',
             description,
-            features,
+            image: imageUrl,
+            brandName: rawProduct.brand?.name || rawProduct.brandName || '',
+            warrantyInfo: rawProduct.warrantyInfo || rawProduct.details?.warrantyInfo || '',
+            deliveryInfo: rawProduct.deliveryInfo || rawProduct.details?.deliveryInfo || '',
+            price,
+            originalPrice,
+            discountPrice,
+            installationPrice,
             specs,
             usage,
-            warrantyInfo,
-            deliveryInfo,
-            installationPrice,
+            images,
+            features,
             brand: normalizeBrand(rawProduct)
         };
     }
